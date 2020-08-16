@@ -9,17 +9,32 @@
 html {
 	font-size: 1.1em;
 	background-color: black;
-//	background-image: url(/img/bg/black-roses.jpg);
 	background-size: 4in;
 	background-repeat: repeat;
 	color: white;
-	text-align: left;
 }
 
-body div {
-	text-align: left !important;
-	display:block;
+nav {
+	text-align: center;
+	ul {
+		display: inline-block;
+		padding: 0;
+		margin: auto;
+		list-style-type: none;
+		li { display: inline-block; }
+	}
+	a, a:visited {
+		margin: 0.5em auto 0.5em auto;
+		display: inline-block;
+		color: lightblue;
+	}
+	border-color: gray;
+	border-width: 1px;
+	border-bottom-style: solid;
+	padding: 0 0 0.3em 0.5em;
+	margin: 0 auto 1em auto;
 }
+
 
 a, a:visited {
 	color: orange;
@@ -35,13 +50,20 @@ a, a:visited {
 .article-ref {
 	display: block;
 	text-align: left;
+	border-bottom: 2px dotted orange;
+	margin-bottom: 1em;
 	a.local {
+		text-decoration: none;
+		border: none;
 	}
 	a.origin {
 	}
 	.title {
 	}
 	.desc {
+		color: lighten(orange,50%);
+		text-decoration: none;
+		border: none;
 	}
 	.date {
 	}
@@ -49,7 +71,9 @@ a, a:visited {
 
 // reformatted articles
 article {
-	h1.title {
+	color: lighten(orange,50%);
+	.title, strong, b {
+		color: orange;
 	}
 	div.info {
 		.time {
@@ -59,6 +83,10 @@ article {
 	}
 	div.photo {
 		img {
+			max-width: 100%;
+			width: 20em;
+			height: auto;
+			clear: both;
 		}
 		span {
 			// image caption 
@@ -67,6 +95,8 @@ article {
 		}
 	}
 	div.otitle_editor {
+		margin-top: 0.75em;
+		color: lightgray;
 		.otitle {
 			// original title
 		}

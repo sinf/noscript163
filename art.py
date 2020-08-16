@@ -20,8 +20,7 @@ cfg={
 	'ARTICLES':'zh-news',
 
 # url that returns to front page or whatever
-# don't change it. use a http server redirect rule
-	'BACK':'/zh-news-return',
+	'BACK':'/main.html',
 
 # how many articles per index page
 	'INDEX_BATCH':20,
@@ -84,10 +83,11 @@ def make_dir(d):
 
 def cached(path, func):
 	make_dir(os.path.dirname(path))
-	try:
+	if os.path.exists(path):
+		print('use cached:',path)
 		with open(path,'rb') as f:
 			data=f.read()
-	except:# FileNotFoundError:
+	else:
 		data=func()
 		with open(path,'wb') as f:
 			f.write(data)
@@ -189,6 +189,11 @@ class Article:
 		body=re.sub('<p>特别声明.*?</p>','',body)
 		body=re.sub('<p class="statement-en".*?</p>','',body)
 
+		# safety
+		noscript='<!--SCRIPT REMOVED-->'
+		body=re.sub('<\s*script.*?script\s*/?>',noscript,body)
+		body=re.sub('<\s*script.*',noscript,body)
+
 		print('write article:', self.dstpath)
 
 		s=self.header()
@@ -207,25 +212,30 @@ class Article:
 + '<meta name="description" content="' \
 + self.desc + '"/>\n' \
 + '</head>\n<body>\n'
-		if self.back_url:
-			h+='<nav>'
-			h+='<a class="zh-ret" href="'+self.back_url+'">'
-			h+='Return to index'
-			h+='</a>\n'
-			h+='</nav>'
+		h+=self.make_back_url()
+		return h
+	
+	def make_back_url(self):
+		if not self.back_url:
+			return ''
+		h='<nav>'
+		h+='<a class="zh-ret" href="'+self.back_url+'">'
+		h+='Return to index'
+		h+='</a>\n'
+		h+='</nav>'
 		return h
 
-	def footer(f):
-		return '</body>\n</html>\n'
+	def footer(self):
+		return self.make_back_url()+'</body>\n</html>\n'
 
 class IndexPage:
 	def __init__(self, basename):
 		title=time.strftime('Chinese news %Y-%m-%d')
 		self.sib_url=basename
 		self.filepath=the_art_dir(basename)
-		print('document',self.filepath)
 		self.next=None
 		self.prev=None
+		self.ns='{http://www.w3.org/1999/xhtml}'
 		self.et=ET.ElementTree( \
 		ET.fromstring(cfg['HEAD_INDEX']+\
 	'<title>' + title + '''</title>
@@ -233,15 +243,25 @@ class IndexPage:
 <meta name="description" content="Aggregated script-free chinese news"/>
 </head><body>
 <nav><ul>
-<li><a href="'''+cfg['BACK']+'''">Return</a></li>
-<li><a class="prev" href="#">Previous</a></li>
-<li><a class="next" href="#">Next</a></li>
+<li><a href="'''+cfg['BACK']+'''">Main site</a></li>
+<li><a href="'''+cfg['LAST_PAGE_ALIAS']+'''">Most recent</a></li>
+<li><a class="prev" href="#">Previous page</a></li>
+<li><a class="next" href="#">Next page</a></li>
 </ul></nav>
+<div class="main-content"></div>
+<nav><ul>
+<li><a href="'''+cfg['BACK']+'''">Main site</a></li>
+<li><a href="'''+cfg['LAST_PAGE_ALIAS']+'''">Most recent</a></li>
+<li><a class="prev" href="#">Previous page</a></li>
+<li><a class="next" href="#">Next page</a></li>
+</ul></nav>
+<br/><br/><br/>
 </body></html>'''))
 		self.load()
-		self.body=self.et.find(".//{http://www.w3.org/1999/xhtml}body")
+		self.body=self.et.find(".//"+self.ns+"body")
 		if self.body is None:
 			raise Exception('oops. no body')
+		print('Index page',self.filepath,'(%d)'%self.count())
 	
 	def load(self):
 		if os.path.exists(self.filepath):
@@ -250,14 +270,18 @@ class IndexPage:
 		return False
 	
 	def count(self):
-		a=self.body.findall(".//div[@class='article-ref']")
-		return len(a)
+		# namespace crap always works differently. fuckin xpath
+		a=self.et.findall(".//"+self.ns+"div[@class='article-ref']")
+		b=self.body.findall(".//div[@class='article-ref']")
+		c=self.body.findall(".//"+self.ns+"div[@class='article-ref']")
+		return max((len(a),len(b),len(c)))
 	
 	def has(self, url):
 		return self.body.find(".//div[@class='article-ref']//a[@class='local'][@href='"+url+"']") is not None
 	
 	def store(self, art):
 		if self.has(art.idx_url):
+			print('Index already has', art.idx_url)
 			return
 		code=\
 '<div class="article-ref">\n' +\
@@ -269,11 +293,18 @@ class IndexPage:
 '<a class="origin" href="'+art.src_url+'">Source: '+art.origin+'</a>\n'+\
 '</div>'
 		a=ET.fromstring(code.encode('utf8'))
-		self.body.append(a)
+		pgc=self.body.find(self.ns+"div[@class='main-content']")
+		assert pgc is not None
+		pgc.append(a)
+		print('Index page',self.filepath,'(%d)'%self.count())
 	
 	def set_ref(self, c, url):
-		a=self.body.find(".//a[@class='"+c+"']")
-		if a: a.attrib['href'] = url;
+		aa=self.body.findall('.//'+self.ns+"a[@class='"+c+"']")
+		assert aa is not None
+		assert len(aa) > 0
+		if aa is not None:
+			for a in aa:
+				a.attrib['href'] = url
 	
 	def save(self, r=1):
 		if self.count() < 1:
@@ -308,6 +339,7 @@ class Indexer:
 			).fetchall()
 		if rows is None or len(rows)==0:
 			self.next_id = 1
+			self.page=None
 			self.new_page()
 		else:
 			self.next_id = rows[0][0] + 1
@@ -320,7 +352,11 @@ class Indexer:
 	def new_page(self):
 		i=self.next_id
 		p=str(i)+'.xhtml'
+		prev=self.page
 		self.page = IndexPage(p)
+		if prev:
+			prev.next=self.page
+			self.page.prev=prev
 		self.next_id += 1
 		self.sqc.execute('INSERT INTO indexes VALUES (?,?,?)', (i, time.strftime('%Y-%m-%d'), p))
 		self.sq.commit()
@@ -353,12 +389,8 @@ def main():
 	ET.register_namespace('','http://www.w3.org/1999/xhtml')
 
 	fp_url='https://3g.163.com/touch/news/'
-	fp_cache=time.strftime('news_163-%Y-%m-%d.html')
-
-	frontpage = \
-	cached(the_art_dir(fp_cache), \
-	lambda:GET(fp_url)) \
-	.decode('utf8')
+	fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d.html'))
+	frontpage = cached(fp_cache, lambda u=fp_url:GET(u)).decode('utf8')
 
 	# Fetch single-line json array from front page
 	# difference between topicData and channelData?
@@ -367,7 +399,7 @@ def main():
 	items=[]
 
 	items+=chanData['listdata']['data']
-	items+=chanData['topdata']['data']
+	#items+=chanData['topdata']['data']
 	#for cat,xx in topicData['data'].items(): items+=xx;
 
 	idx = Indexer()
@@ -385,9 +417,9 @@ def main():
 			and not link.endswith('.html') \
 			and not link.endswith('.cgi') \
 			and not link.endswith('.php'):
-			print(item['link'])
 			art=Article(item)
 			if not art.exists():
+				print('Process:',item['link'])
 				art.fetch()
 				art.back_url = idx.article_back_ref()
 				art.write_html()

@@ -10,7 +10,8 @@ news.tar.bz2: zh-articles.css art.py
 	cp -lfv $@ zh-news/zh-articles.css
 
 clean:
-	find zh-news/ \( -name '*.html' -o -name '*.xhtml' -o -name '*.gz' \) -delete -print
+	find zh-news/ \( -name '[0-9]+.html' -o -name '*.xhtml' -o -name '*.gz' \) -delete -print
+	find zh-news/ -mindepth 2 -type f -name '*.html' -delete -print
 	rm -fv zh-news/zh-news.db
 
 view:
