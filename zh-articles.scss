@@ -51,6 +51,7 @@ a, a:visited {
 	display: block;
 	text-align: left;
 	border-bottom: 2px dotted orange;
+	padding-bottom: 0.5em;
 	margin-bottom: 1em;
 	a.local {
 		text-decoration: none;
@@ -67,6 +68,10 @@ a, a:visited {
 	}
 	.date {
 	}
+}
+
+body>.main-content, article {
+	margin: 0 0.5em 0 0.5em;
 }
 
 // reformatted articles
