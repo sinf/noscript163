@@ -1,0 +1,77 @@
+
+* {
+	box-sizing: border-box;
+	font-family: Arial;
+	padding: 0;
+	margin: 0;
+}
+
+html {
+	font-size: 1.1em;
+	background-color: black;
+//	background-image: url(/img/bg/black-roses.jpg);
+	background-size: 4in;
+	background-repeat: repeat;
+	color: white;
+	text-align: left;
+}
+
+body div {
+	text-align: left !important;
+	display:block;
+}
+
+a, a:visited {
+	color: orange;
+	border: 1px dotted lightblue;
+}
+
+*:lang(zh) {
+	// list grabbed from https://www.tudou.com/
+	font-family: "PingFang SC", "Lantinghei SC", "Microsoft Yahei", "\5FAE\8F6F\96C5\9ED1", "helvetica", "arial", "verdana", "tahoma", "sans-serif";
+}
+
+// articles in index
+.article-ref {
+	display: block;
+	text-align: left;
+	a.local {
+	}
+	a.origin {
+	}
+	.title {
+	}
+	.desc {
+	}
+	.date {
+	}
+}
+
+// reformatted articles
+article {
+	h1.title {
+	}
+	div.info {
+		.time {
+		}
+		.source {
+		}
+	}
+	div.photo {
+		img {
+		}
+		span {
+			// image caption 
+			// seems always empty
+			// usually the caption is in a <p> right after .photo
+		}
+	}
+	div.otitle_editor {
+		.otitle {
+			// original title
+		}
+		.editor {
+		}
+	}
+}
+
