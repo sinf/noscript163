@@ -1,6 +1,6 @@
 #!/usr/bin/env python2.7
 #-*- encoding: utf-8 -*-
-from __future__ import print_function, unicode_literals
+from __future__ import print_function
 
 # Chinese article aggregator script
 # generates a tree of documents and images
@@ -38,7 +38,7 @@ cfg={
 	'SAVE_IMG_INFO':True,
 
 # all index documents include this in their <head>
-	'HEAD_INDEX': '''<?xml version="1.0" encoding="UTF-8"?>
+	'HEAD_INDEX': u'''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh" lang="zh">
 <head>
@@ -47,17 +47,17 @@ cfg={
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
 <link rel="stylesheet" type="text/css" href="zh-articles.css"/>
-''',
+'''.encode('utf-8'),
 
 # and all article documents include this
-	'HEAD_ARTICLE': '''<html lang="zh">
+	'HEAD_ARTICLE': u'''<html lang="zh">
 <head>
 <meta charset="UTF-8"/>
 <meta http-equiv="Content-Type" content="application/html;charset=UTF-8"/>
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
 <link rel="stylesheet" type="text/css" href="../zh-articles.css"/>
-''',
+'''.encode('utf-8'),
 }
 
 import urllib2
@@ -110,6 +110,11 @@ def scanJ(html, r):
 		raise Exception('failed to parse main page, regex'+r)
 	return json.loads(m.group(1))
 
+def S(x):
+	if type(x) is unicode:
+		return x.encode('utf-8')
+	return x
+
 class Article:
 	def __init__(self, item):
 		""" item needs to have
@@ -119,14 +124,15 @@ class Article:
 		digest (optional)
 		"""
 		self.j=item
-		self.src_url = item['link']
+		self.docid=S(self.j['docid'])
+		self.src_url = S(item['link'])
 		if '?' in self.src_url:
 			self.src_url = self.src_url[:self.src_url.find('?')]
-		self.title=item.get('title',self.j.get('docid','untitled article'))
+		self.title=S(item.get('title',self.docid))
 		# digest: truncated description
-		self.desc=item.get('digest','no description')
-		self.origin='3g.163.com 手机网易网'
-		self.bname=self.j['docid']+'.html'
+		self.desc=S(item.get('digest','no description'))
+		self.origin=S(u'3g.163.com 手机网易网')
+		self.bname=self.docid+'.html'
 		self.date=time.strptime(item['ptime'], '%Y-%m-%d %H:%M:%S')
 		self.dir_ym = time.strftime('%Y-%m',self.date)
 		self.dstdir_r = art_dir(self.dir_ym)
@@ -174,8 +180,7 @@ class Article:
 	def fetch(self):
 		make_dir(self.dstdir)
 		self.src_html=cached(self.dstpath+'.in', \
-			lambda:GET(self.src_url)) \
-			.decode('utf8')
+			lambda:GET(self.src_url))
 	
 	def write_html(self):
 		html=self.src_html
@@ -188,7 +193,7 @@ class Article:
 		# dig out the article
 		m=re.search('<article[^>]*>.*</article>', html, re.I|re.S)
 		if m is None:
-			print('failed to get article', self.j['docid'])
+			print('failed to get article', self.docid)
 			return None
 
 		body=m.group(0)
@@ -217,7 +222,7 @@ class Article:
 		s=self.header()
 		s+=body
 		s+=self.footer()
-		s=s.encode('utf8')
+		s=S(s)
 
 		if cfg['SAVE_HTML']:
 			with open(self.dstpath,'wb') as f:
@@ -313,7 +318,7 @@ class IndexPage:
 '<span class="date">'+ time.strftime('%Y-%m-%d %H:%M:%S',art.date)+ '</span>\n' +\
 '<a class="origin" href="'+art.src_url+'">Source: '+art.origin+'</a>\n'+\
 '</div>'
-		a=ET.fromstring(code.encode('utf8'))
+		a=ET.fromstring(code)
 		pgc=self.body.find(self.ns+"div[@class='main-content']")
 		assert pgc is not None
 		pgc.append(a)
@@ -348,6 +353,7 @@ class Indexer:
 		sq_path=the_art_dir('zh-news.db')
 		make_dir(os.path.dirname(sq_path))
 		self.sq = sqlite3.connect(sq_path)
+		self.sq.text_factory = str #utf hack
 		self.sqc = self.sq.cursor()
 		self.sqc.execute( \
 'CREATE TABLE IF NOT EXISTS articles \
@@ -411,7 +417,7 @@ def main():
 
 	fp_url='https://3g.163.com/touch/news/'
 	fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d.html'))
-	frontpage = cached(fp_cache, lambda u=fp_url:GET(u)).decode('utf8')
+	frontpage = cached(fp_cache, lambda u=fp_url:GET(u))
 
 	# Fetch single-line json array from front page
 	# difference between topicData and channelData?
