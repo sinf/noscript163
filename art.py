@@ -25,6 +25,18 @@ cfg={
 # how many articles per index page
 	'INDEX_BATCH':20,
 
+# if we want to keep source images (may eat up server hdd)
+	'SAVE_IMG_SRC':False,
+
+# if we want .html articles
+	'SAVE_HTML':True,
+
+# if we want .html.gz articles
+	'SAVE_HTML_GZ':True,
+
+# if we want to write info .txt for later re-downloading of higher resolution image
+	'SAVE_IMG_INFO':True,
+
 # all index documents include this in their <head>
 	'HEAD_INDEX': '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -53,7 +65,6 @@ import re
 import json
 import os
 import time
-import gzip
 import sqlite3
 import xml.etree.ElementTree as ET
 
@@ -147,6 +158,13 @@ class Article:
 			make_dir(os.path.dirname(dst))
 			cached(org, lambda: GET(src))
 			os.system('convert '+org+" -resize 400000@ -quality 25 "+dst)
+			if not cfg['SAVE_IMG_SRC']:
+				os.remove(org)
+			if cfg['SAVE_IMG_INFO']:
+				with open(org+'.txt','w') as f:
+					f.write(src+'\n')
+					f.write(data_src+'\n')
+					f.write(tailer+'\n')
 			print('Write image', dst)
 		s='<img src="' + url + '"/>'
 		if '<script' not in tailer:
@@ -201,10 +219,13 @@ class Article:
 		s+=self.footer()
 		s=s.encode('utf8')
 
-		with open(self.dstpath,'wb') as f:
-			f.write(s)
-		with gzip.open(self.dstpath+'.gz','wb') as f:
-			f.write(s)
+		if cfg['SAVE_HTML']:
+			with open(self.dstpath,'wb') as f:
+				f.write(s)
+		if cfg['SAVE_HTML_GZ']:
+			import gzip
+			with gzip.open(self.dstpath+'.gz','wb') as f:
+				f.write(s)
 	
 	def header(self):
 		h=cfg['HEAD_ARTICLE'] \
