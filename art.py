@@ -2,8 +2,11 @@
 #-*- encoding: utf-8 -*-
 from __future__ import print_function
 
-# Chinese article aggregator script
-# generates a tree of documents and images
+# Chinese news article aggregator script
+# downloads articles, removes javascript etc.. crap
+# and outputs a reformatted static news website
+# Licensed under GPL v3
+# Arho Mahlamaki, 2020
 
 cfg={
 # local filesystem path where things are stored
