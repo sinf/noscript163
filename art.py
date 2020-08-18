@@ -172,10 +172,12 @@ class Article:
 			make_dir(os.path.dirname(dst))
 			cached(org, lambda: GET(src))
 			cmd='convert '+org+" -resize 400000@ -quality 25 "+dst
+			if cfg['NICE']:
+				cmd='cpulimit -q -l 5 -- '+cmd
 			print(cmd)
 			os.system(cmd)
 			be_nice()
-			if not cfg['SAVE_IMG_SRC']:
+			if not cfg['SAVE_IMG_SRC'] and os.path.exists(org):
 				os.remove(org)
 			if cfg['SAVE_IMG_INFO']:
 				with open(org+'.txt','w') as f:
@@ -443,7 +445,7 @@ def main():
 			frontpage=f.read()
 	else:
 		fp_url='https://3g.163.com/touch/news/'
-		fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d.html'))
+		fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d-%H.html'))
 		frontpage = cached(fp_cache, lambda u=fp_url:GET(u))
 
 	# Fetch single-line json array from front page
