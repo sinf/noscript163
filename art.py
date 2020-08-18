@@ -2,15 +2,12 @@
 #-*- encoding: utf-8 -*-
 from __future__ import print_function
 
-# Chinese news article aggregator script
-# downloads articles, removes javascript etc.. crap
-# and outputs a reformatted static news website
-# Licensed under GPL v3
-# Arho Mahlamaki, 2020
+# Chinese article aggregator script
+# generates a tree of documents and images
 
 cfg={
 # local filesystem path where things are stored
-	'WEB_ROOT':'.',
+	'WEB_ROOT':'/home4/wlmrnkbl/news.amahl.fi',
 
 # filename (under WEB_ROOT/ARTICLES/)
 # of a copy of the most recent index page
@@ -39,6 +36,9 @@ cfg={
 
 # if we want to write info .txt for later re-downloading of higher resolution image
 	'SAVE_IMG_INFO':True,
+
+# enable delays to keep server CPU usage low
+	'NICE':True,
 
 # all index documents include this in their <head>
 	'HEAD_INDEX': u'''<?xml version="1.0" encoding="UTF-8"?>
@@ -70,6 +70,11 @@ import os
 import time
 import sqlite3
 import xml.etree.ElementTree as ET
+import argparse
+
+def be_nice():
+	if cfg['NICE']:
+		time.sleep(10)
 
 def the_dir(path):
 	wr=os.environ.get('WEB_ROOT',cfg['WEB_ROOT'])
@@ -166,7 +171,10 @@ class Article:
 		if not os.path.exists(dst):
 			make_dir(os.path.dirname(dst))
 			cached(org, lambda: GET(src))
-			os.system('convert '+org+" -resize 400000@ -quality 25 "+dst)
+			cmd='convert '+org+" -resize 400000@ -quality 25 "+dst
+			print(cmd)
+			os.system(cmd)
+			be_nice()
 			if not cfg['SAVE_IMG_SRC']:
 				os.remove(org)
 			if cfg['SAVE_IMG_INFO']:
@@ -202,7 +210,7 @@ class Article:
 		body=m.group(0)
 
 		# preserve image tags
-		body=re.sub('<a href="(.*?)">\s*<img.*?data-src="(.*?)"\s*>(.*?)</a>', lambda m: self.fix_img(m), body, flags=re.M|re.S)
+		body=re.sub('<a href="([^"]+)">\s*<img.*?data-src="([^"]+)"\s*>(.*?)</a>', lambda m: self.fix_img(m), body, flags=re.M|re.S)
 
 		# todo: video
 		body=re.sub('<div class="video">.*?</div>','',body, flags=re.M|re.S)
@@ -212,13 +220,13 @@ class Article:
 		body=re.sub('[ \t]*[\n\r]+[ \t]*','\n',body)
 
 		# remove Notice: the content..NetEase..blahblah
-		body=re.sub('<p>特别声明.*?</p>','',body)
-		body=re.sub('<p class="statement-en".*?</p>','',body)
+		body=re.sub('<p>特别声明.*?</p>','',body,flags=re.S)
+		body=re.sub('<p class="statement-en".*?</p>','',body,flags=re.S)
 
 		# safety
 		noscript='<!--SCRIPT REMOVED-->'
-		body=re.sub('<\s*script.*?script\s*/?>',noscript,body)
-		body=re.sub('<\s*script.*',noscript,body)
+		body=re.sub('<\s*script.*?script\s*/?>',noscript,body,flags=re.S)
+		body=re.sub('<\s*script.*',noscript,body,flags=re.S)
 
 		print('write article:', self.dstpath)
 
@@ -401,10 +409,10 @@ class Indexer:
 			art.origin,
 		))
 		self.sq.commit()
-		self.page.store(art)
 		if self.page.count() >= cfg['INDEX_BATCH']:
 			self.page.save()
 			self.new_page()
+		self.page.store(art)
 
 	def done(self):
 		self.page.save()
@@ -415,12 +423,28 @@ class Indexer:
 		return '../' + self.page.sib_url
 
 def main():
+
+	ap=argparse.ArgumentParser()
+	ap.add_argument('-m', '--mainpage', nargs=1, default=[])
+	ap.add_argument('-f', '--fuck-it', action='store_true')
+	args=ap.parse_args()
+
+	T_START=time.time()
+	os.nice(19) # be nice
+
+	if args.fuck_it:
+		cfg['NICE']=False
 	
 	ET.register_namespace('','http://www.w3.org/1999/xhtml')
 
-	fp_url='https://3g.163.com/touch/news/'
-	fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d.html'))
-	frontpage = cached(fp_cache, lambda u=fp_url:GET(u))
+	if len(args.mainpage)>0:
+		print('Using', args.mainpage[0], 'as the front page')
+		with open(args.mainpage[0],'r') as f:
+			frontpage=f.read()
+	else:
+		fp_url='https://3g.163.com/touch/news/'
+		fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d.html'))
+		frontpage = cached(fp_cache, lambda u=fp_url:GET(u))
 
 	# Fetch single-line json array from front page
 	# difference between topicData and channelData?
@@ -454,6 +478,7 @@ def main():
 				art.back_url = idx.article_back_ref()
 				art.write_html()
 				idx.put(art)
+				be_nice()
 	
 	idx.done()
 
@@ -463,6 +488,10 @@ def main():
 	if os.path.exists(idx.page.filepath):
 		os.link(idx.page.filepath, p)
 		print(p,'=>',idx.page.filepath)
+	
+	T_END=time.time()
+	T_TOT=T_END-T_START
+	print('Operation took', T_TOT, 'seconds')
 
 if __name__=="__main__":
 	main()
