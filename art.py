@@ -37,8 +37,15 @@ cfg={
 # if we want to write info .txt for later re-downloading of higher resolution image
 	'SAVE_IMG_INFO':True,
 
+# save PID to this file (comment if don't want)
+	'PID_FILE':'/home4/wlmrnkbl/logs/news-aggregator.pid',
+
 # enable delays to keep server CPU usage low
 	'NICE':True,
+
+# paths to external programs
+	'CONVERT':'convert',
+	'CPULIMIT':'cpulimit',
 
 # all index documents include this in their <head>
 	'HEAD_INDEX': u'''<?xml version="1.0" encoding="UTF-8"?>
@@ -71,6 +78,17 @@ import time
 import sqlite3
 import xml.etree.ElementTree as ET
 import argparse
+
+def should_terminate():
+	# to kill the program (when started by another user) use PID_FILE and delete it
+	return 'PID_FILE' in cfg and not os.path.exists(cfg['PID_FILE'])
+
+def try_remove(x):
+	try:
+		os.remove(x)
+		print('Removed',x)
+	except:
+		pass
 
 def be_nice():
 	if cfg['NICE']:
@@ -127,7 +145,7 @@ class Article:
 	def __init__(self, item):
 		""" item needs to have
 		link : url to some .html file
-		ptime : YYYY-MM-DD HH:MM:SS
+		ptime_py : python datetime
 		title or docid (optional)
 		digest (optional)
 		"""
@@ -141,7 +159,7 @@ class Article:
 		self.desc=S(item.get('digest','no description'))
 		self.origin=S(u'3g.163.com 手机网易网')
 		self.bname=self.docid+'.html'
-		self.date=time.strptime(item['ptime'], '%Y-%m-%d %H:%M:%S')
+		self.date=item['ptime_py_']
 		self.dir_ym = time.strftime('%Y-%m',self.date)
 		self.dstdir_r = art_dir(self.dir_ym)
 		self.dstdir=the_dir(self.dstdir_r)
@@ -154,6 +172,8 @@ class Article:
 		return os.path.exists(self.dstpath)
 	
 	def fix_img(self,m):
+		if should_terminate():
+			raise ImportError('program kill switch')
 		src=m.group(1)
 		data_src=m.group(2)
 		tailer=m.group(3)
@@ -171,14 +191,14 @@ class Article:
 		if not os.path.exists(dst):
 			make_dir(os.path.dirname(dst))
 			cached(org, lambda: GET(src))
-			cmd='convert '+org+" -resize 400000@ -quality 25 "+dst
+			cmd=cfg['CONVERT']+' '+org+" -resize 400000@ -quality 25 "+dst
 			if cfg['NICE']:
-				cmd='cpulimit -q -l 5 -- '+cmd
+				cmd=cfg['CPULIMIT']+' -q -l 5 -- '+cmd
 			print(cmd)
 			os.system(cmd)
 			be_nice()
-			if not cfg['SAVE_IMG_SRC'] and os.path.exists(org):
-				os.remove(org)
+			if not cfg['SAVE_IMG_SRC']:
+				try_remove(org)
 			if cfg['SAVE_IMG_INFO']:
 				with open(org+'.txt','w') as f:
 					f.write(src+'\n')
@@ -212,7 +232,10 @@ class Article:
 		body=m.group(0)
 
 		# preserve image tags
-		body=re.sub('<a href="([^"]+)">\s*<img.*?data-src="([^"]+)"\s*>(.*?)</a>', lambda m: self.fix_img(m), body, flags=re.M|re.S)
+		try:
+			body=re.sub('<a href="([^"]+)">\s*<img.*?data-src="([^"]+)"\s*>(.*?)</a>', lambda m: self.fix_img(m), body, flags=re.M|re.S)
+		except ImportError:
+			return
 
 		# todo: video
 		body=re.sub('<div class="video">.*?</div>','',body, flags=re.M|re.S)
@@ -432,7 +455,17 @@ def main():
 	args=ap.parse_args()
 
 	T_START=time.time()
+	print('My PID is', os.getpid())
+	if 'PID_FILE' in cfg:
+		try:
+			with open(cfg['PID_FILE'],'w') as f:
+				f.write(str(os.getpid()))
+		except:
+			print('!! Failed to write', cfg['PID_FILE'])
+			del cfg['PID_FILE']
+	
 	os.nice(19) # be nice
+	os.environ['PATH'] = '/home4/wlmrnkbl/bin:' + os.environ['PATH']
 
 	if args.fuck_it:
 		cfg['NICE']=False
@@ -460,7 +493,10 @@ def main():
 
 	idx = Indexer()
 
-	for item in items:
+	for it in items:
+		it['ptime_py_'] = time.strptime(it['ptime'],'%Y-%m-%d %H:%M:%S')
+
+	for item in sorted(items, key=lambda it: it['ptime_py_'], reverse=True):
 		assert type(item) is dict
 		if False:
 			print()
@@ -474,6 +510,8 @@ def main():
 			and not link.endswith('.cgi') \
 			and not link.endswith('.php'):
 			art=Article(item)
+			if should_terminate():
+				break
 			if not art.exists():
 				print('Process:',item['link'])
 				art.fetch()
@@ -481,12 +519,14 @@ def main():
 				art.write_html()
 				idx.put(art)
 				be_nice()
+
+		if should_terminate():
+			break
 	
 	idx.done()
 
 	p=the_art_dir(cfg['LAST_PAGE_ALIAS'])
-	if os.path.exists(p):
-		os.remove(p)
+	try_remove(p)
 	if os.path.exists(idx.page.filepath):
 		os.link(idx.page.filepath, p)
 		print(p,'=>',idx.page.filepath)
@@ -496,5 +536,9 @@ def main():
 	print('Operation took', T_TOT, 'seconds')
 
 if __name__=="__main__":
-	main()
+	try:
+		main()
+	finally:
+		if 'PID_FILE' in cfg:
+			try_remove(cfg['PID_FILE'])
 
