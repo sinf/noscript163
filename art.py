@@ -141,6 +141,17 @@ def S(x):
 		return x.encode('utf-8')
 	return x
 
+def discard_url_params(url):
+	i=url.find('?')
+	return url[:i] if i>5 else url
+
+def check_ext(url,valid):
+	u=discard_url_params(url).lower()
+	for ext in valid:
+		if u.endswith(ext):
+			return True
+	return False
+
 class Article:
 	def __init__(self, item):
 		""" item needs to have
@@ -181,7 +192,7 @@ class Article:
 			print('rejecting javascript img hack:', src)
 			return ''
 		bn=os.path.basename(src)
-		if bn[-4:].lower() not in ('.jpg','.gif','.png'):
+		if not check_ext(bn,('.jpg','.gif','.png','.webp')):
 			print('rejecting image because of unknown suffix:', bn[-4:])
 			return ''
 		org=os.path.join(self.dstdir, 'img0', bn)
@@ -503,17 +514,14 @@ def main():
 			for z in 'ptime','title','digest','link','type','docid', 'category', 'channel':
 				print(z,item.get(z,None))
 
-		link=item['link'].lower()
-		if not link.endswith('.html') \
-			and not link.endswith('.xhtml') \
-			and not link.endswith('.html') \
-			and not link.endswith('.cgi') \
-			and not link.endswith('.php'):
+		link=item['link']
+
+		if check_ext(link, ('.html','.xhtml','.cgi','.php')):
 			art=Article(item)
 			if should_terminate():
 				break
 			if not art.exists():
-				print('Process:',item['link'])
+				print('Process:',link)
 				art.fetch()
 				art.back_url = idx.article_back_ref()
 				art.write_html()
