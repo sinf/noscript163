@@ -8,6 +8,6 @@ find zh-news/????-??/ -type f -name '*.html' -delete
 rm -f zh-news/last.xhtml zh-news/zh-news.db
 
 for f in $(echo zh-news/news_* | tr ' ' '\n' | sort -n); do
-	./art.py -f -m "$f"
+	./art.py -f -m "$f" $*
 done
 

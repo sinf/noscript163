@@ -60,7 +60,8 @@ cfg={
 '''.encode('utf-8'),
 
 # and all article documents include this
-	'HEAD_ARTICLE': u'''<html lang="zh">
+	'HEAD_ARTICLE': u'''<!DOCTYPE html>
+<html lang="zh">
 <head>
 <meta charset="UTF-8"/>
 <meta http-equiv="Content-Type" content="application/html;charset=UTF-8"/>
@@ -78,6 +79,7 @@ import time
 import sqlite3
 import xml.etree.ElementTree as ET
 import argparse
+import gzip
 
 def should_terminate():
 	# to kill the program (when started by another user) use PID_FILE and delete it
@@ -118,20 +120,25 @@ def make_dir(d):
 		print('Create directory:', d)
 		os.makedirs(d)
 
-def cached(path, func):
-	make_dir(os.path.dirname(path))
+def cached(path, func, opn=open):
 	if os.path.exists(path):
 		print('use cached:',path)
-		with open(path,'rb') as f:
+		with opn(path,'rb') as f:
 			data=f.read()
 	else:
+		make_dir(os.path.dirname(path))
 		data=func()
-		with open(path,'wb') as f:
+		print('Write cached copy:', path)
+		with opn(path,'wb') as f:
 			f.write(data)
 	return data
 
+def cached_gz(path, func):
+	path+='.gz'
+	return cached(path, func, gzip.open)
+
 def scanJ(html, r):
-	m=re.search(r, html, re.M|re.I)
+	m=re.search(r, html, re.M|re.I|re.U)
 	if m is None:
 		raise Exception('failed to parse main page, regex'+r)
 	return json.loads(m.group(1))
@@ -143,7 +150,7 @@ def S(x):
 
 def discard_url_params(url):
 	i=url.find('?')
-	return url[:i] if i>5 else url
+	return url[:i] if i>=0 else url
 
 def check_ext(url,valid):
 	u=discard_url_params(url).lower()
@@ -182,27 +189,26 @@ class Article:
 	def exists(self):
 		return os.path.exists(self.dstpath)
 	
-	def fix_img(self,m):
-		if should_terminate():
-			raise ImportError('program kill switch')
-		src=m.group(1)
-		data_src=m.group(2)
-		tailer=m.group(3)
-		if src.startswith('javascript:'):
+	def shrink_img(self, src):
+		if 'javascript:' in src:
 			print('rejecting javascript img hack:', src)
-			return ''
+			return None
 		bn=os.path.basename(src)
 		if not check_ext(bn,('.jpg','.gif','.png','.webp')):
 			print('rejecting image because of unknown suffix:', bn[-4:])
-			return ''
+			return None
 		org=os.path.join(self.dstdir, 'img0', bn)
-		bn2=re.sub('(\..{1,4})$','.webp',bn)
+		bn2=re.sub(r'(\..{1,4})$','.webp',bn)
 		dst=os.path.join(self.dstdir, 'img', bn2)
 		url=os.path.join('img', bn2)
 		if not os.path.exists(dst):
 			make_dir(os.path.dirname(dst))
-			cached(org, lambda: GET(src))
-			cmd=cfg['CONVERT']+' '+org+" -resize 400000@ -quality 25 "+dst
+			try:
+				cached(org, lambda: GET(src))
+			except:
+				print('FAILED to get image:', src)
+				return None
+			cmd=cfg['CONVERT']+' '+org+" -resize '800000@>' -quality 30 "+dst
 			if cfg['NICE']:
 				cmd=cfg['CPULIMIT']+' -q -l 5 -- '+cmd
 			print(cmd)
@@ -213,56 +219,124 @@ class Article:
 			if cfg['SAVE_IMG_INFO']:
 				with open(org+'.txt','w') as f:
 					f.write(src+'\n')
-					f.write(data_src+'\n')
-					f.write(tailer+'\n')
 			print('Write image', dst)
+		return url
+	
+	def fix_img(self,m):
+		if should_terminate():
+			raise ImportError('program kill switch')
+		src=m.group(1)
+		data_src=m.group(2)
+		tailer=m.group(3)
+		url = self.shrink_img(src)
+		if url is None:
+			return ''
 		s='<img src="' + url + '"/>'
 		if '<script' not in tailer:
 			s += tailer
 		return s
 	
+	def filter_tag(self, x):
+		whole=x.group(0)
+		if whole=='<!--SCRIPT REMOVED-->':
+			return whole
+		tag=x.group(1).strip().strip('/').lower()
+		attr=x.group(2).strip().strip('/').replace('\n',' ')
+		start_slash='/' if x.group(1).startswith('/') else ''
+		end_slash='/' if x.group(2).endswith('/') else ''
+
+		if tag not in ('p','h1','h2','h3','h4','h5','h6',
+			'strong','em','table','th','tr','td','blockquote',
+			'b','i','small','span','div','br','hr','img',
+			'ul','li','ol','a','section','figure','figcaption',
+			'sub','sup','tt','u','big','center','pre','q', 'article'):
+			#print('dropping extra tag:', whole)
+			return '<!-- TAG REMOVED: ' + tag + ' -->'
+
+		cl=''
+		if len(attr)>0:
+			cl=re.search(r'class="[-_a-zA-Z0-9]+"', attr)
+			cl='' if cl is None else ' '+cl.group(0)
+			Id=re.search(r'id="[-_a-zA-Z0-9]+"', attr)
+			Id='' if Id is None else ' '+Id.group(0)
+			cl=Id+cl
+			if tag == 'img':
+				ds=re.search(r'data-src="([^"]+)"', attr)
+				ds=ds if ds is not None else re.search(r'src="([^"]+)"', attr)
+				if ds is None:
+					#print('dropping weird img:', whole)
+					return '<!-- IMG REMOVED -->'
+				url=self.shrink_img(ds.group(1))
+				if url is None:
+					return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
+				ds=' src="'+url+'"'
+				alt=re.search(r'alt="([^"]+)"', attr)
+				alt='' if alt is None else ' '+alt.group(0)
+				return str('<img' + cl + alt + ds + '/>')
+			if tag == 'a':
+				url=''
+				ref=re.search(r'href="([^"]+)"', attr)
+				if ref is not None:
+					url=ref.group(1).strip().lower()
+					url=discard_url_params(url)
+				Js='javascript:' in url
+				Ds='data-src' in attr
+				http=url.startswith('http://')
+				https=url.startswith('https://')
+				ext_ok=check_ext(url,('.html','.htm','.xht','.xhtml','.cgi','.php')) #,'.png','.jpg','.jpeg','.gif','.webp'))
+				if Js or Ds or (not http and not https) or not ext_ok:
+					#print('dropping weird link:', whole)
+					return '<a><!-- LINK REMOVED "' + url + '" -->'
+				return str('<a href="' + cl + url + '">')
+
+		nl = '\n' if start_slash=='/' else ''
+		return str('<' + start_slash + tag + cl + end_slash + '>' + nl)
+	
 	def fetch(self):
 		make_dir(self.dstdir)
-		self.src_html=cached(self.dstpath+'.in', \
+		self.src_html=cached_gz(self.dstpath+'.in', \
 			lambda:GET(self.src_url))
 	
 	def write_html(self):
 		html=self.src_html
 
-		de=re.search('<meta\s+name="description"\s+content="([^"]+)"\s*/?>', html)
+		de=re.search(r'<meta\s+name="description"\s+content="([^"]+)"\s*/?>', html)
 		if de is not None:
 			# upgrade to the real description
 			self.desc=de.group(1)
 
 		# dig out the article
-		m=re.search('<article[^>]*>.*</article>', html, re.I|re.S)
+		m=re.search(r'<article[^>]*>.*</article>', html, re.I|re.S)
 		if m is None:
 			print('failed to get article', self.docid)
-			return None
+			return False
+
+		art_tag=m.group(0)[:100]
+		if 'type="imgnews"' in art_tag or 'class="topNews"' in art_tag:
+			# clickbait trash compilation
+			return False
 
 		body=m.group(0)
 
-		# preserve image tags
-		try:
-			body=re.sub('<a href="([^"]+)">\s*<img.*?data-src="([^"]+)"\s*>(.*?)</a>', lambda m: self.fix_img(m), body, flags=re.M|re.S)
-		except ImportError:
-			return
-
-		# todo: video
-		body=re.sub('<div class="video">.*?</div>','',body, flags=re.M|re.S)
-		
-		# cheap attempt at minifying it
-		body=re.sub('[ \t]+',' ',body)
-		body=re.sub('[ \t]*[\n\r]+[ \t]*','\n',body)
-
 		# remove Notice: the content..NetEase..blahblah
-		body=re.sub('<p>特别声明.*?</p>','',body,flags=re.S)
-		body=re.sub('<p class="statement-en".*?</p>','',body,flags=re.S)
+		body=re.sub(r'<p>特别声明.*?</p>','',body,flags=re.S)
+		body=re.sub(r'<p class="statement-en".*?</p>','',body,flags=re.S)
 
 		# safety
 		noscript='<!--SCRIPT REMOVED-->'
-		body=re.sub('<\s*script.*?script\s*/?>',noscript,body,flags=re.S)
-		body=re.sub('<\s*script.*',noscript,body,flags=re.S)
+		body=re.sub('<\s*script.*?script\s*/?>',noscript,body,flags=re.S|re.U)
+		body=re.sub('<\s*script.*',noscript,body,flags=re.S|re.U)
+
+		try:
+			# only keep some tags
+			body=re.sub(r'<\s*([^ >]*)\s*([^>]*)>', lambda x: self.filter_tag(x), body, flags=re.M|re.S|re.U)
+		except ImportError:
+			# manual termination
+			return False
+
+		# cheap attempt at minifying it
+		body=re.sub('[ \t]+',' ',body)
+		body=re.sub('[ \t]*[\n\r]+[ \t]*','\n',body)
 
 		print('write article:', self.dstpath)
 
@@ -275,9 +349,10 @@ class Article:
 			with open(self.dstpath,'wb') as f:
 				f.write(s)
 		if cfg['SAVE_HTML_GZ']:
-			import gzip
 			with gzip.open(self.dstpath+'.gz','wb') as f:
 				f.write(s)
+
+		return True
 	
 	def header(self):
 		h=cfg['HEAD_ARTICLE'] \
@@ -463,7 +538,14 @@ def main():
 	ap=argparse.ArgumentParser()
 	ap.add_argument('-m', '--mainpage', nargs=1, default=[])
 	ap.add_argument('-f', '--fuck-it', action='store_true')
+	ap.add_argument('-c', '--conf', nargs=1, default=[None])
 	args=ap.parse_args()
+
+	if args.conf[0] is not None:
+		print('reading config', args.conf[0])
+		with open(args.conf[0],'r') as f:
+			tmp=json.load(f)
+			cfg.update(tmp)
 
 	T_START=time.time()
 	print('My PID is', os.getpid())
@@ -485,17 +567,20 @@ def main():
 
 	if len(args.mainpage)>0:
 		print('Using', args.mainpage[0], 'as the front page')
-		with open(args.mainpage[0],'r') as f:
+		opn=open
+		if args.mainpage[0].endswith('.gz'):
+			opn=gzip.open
+		with opn(args.mainpage[0],'rb') as f:
 			frontpage=f.read()
 	else:
 		fp_url='https://3g.163.com/touch/news/'
 		fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d-%H.html'))
-		frontpage = cached(fp_cache, lambda u=fp_url:GET(u))
+		frontpage = cached_gz(fp_cache, lambda u=fp_url:GET(u))
 
 	# Fetch single-line json array from front page
 	# difference between topicData and channelData?
-	#topicData = scanJ(frontpage, r'^ *var *topicData *= *(.*);$')
-	chanData = scanJ(frontpage, r'^ *var *channelData *= *(.*);$')
+	#topicData = scanJ(frontpage, r'^\s*var\s+topicData\s*=\s*({.*});$')
+	chanData = scanJ(frontpage, r'^\s*var\s+channelData\s*=\s*({.*});$')
 	items=[]
 
 	items+=chanData['listdata']['data']
@@ -524,8 +609,8 @@ def main():
 				print('Process:',link)
 				art.fetch()
 				art.back_url = idx.article_back_ref()
-				art.write_html()
-				idx.put(art)
+				if art.write_html():
+					idx.put(art)
 				be_nice()
 
 		if should_terminate():
