@@ -160,6 +160,7 @@ def check_ext(url,valid):
 	return False
 
 class Article:
+
 	def __init__(self, item):
 		""" item needs to have
 		link : url to some .html file
@@ -201,7 +202,7 @@ class Article:
 		bn2=re.sub(r'(\..{1,4})$','.webp',bn)
 		dst=os.path.join(self.dstdir, 'img', bn2)
 		url=os.path.join('img', bn2)
-		if not os.path.exists(dst):
+		if not os.path.exists(dst) or cfg.get('REBUILD_IMAGES',False):
 			make_dir(os.path.dirname(dst))
 			try:
 				cached(org, lambda: GET(src))
@@ -251,7 +252,7 @@ class Article:
 			'ul','li','ol','a','section','figure','figcaption',
 			'sub','sup','tt','u','big','center','pre','q', 'article'):
 			#print('dropping extra tag:', whole)
-			return '<!-- TAG REMOVED: ' + tag + ' -->'
+			return '<!-- TAG: ' + tag + ' -->'
 
 		cl=''
 		if len(attr)>0:
@@ -286,7 +287,7 @@ class Article:
 				ext_ok=check_ext(url,('.html','.htm','.xht','.xhtml','.cgi','.php')) #,'.png','.jpg','.jpeg','.gif','.webp'))
 				if Js or Ds or (not http and not https) or not ext_ok:
 					#print('dropping weird link:', whole)
-					return '<a><!-- LINK REMOVED "' + url + '" -->'
+					return '<a><!-- LINK "' + url + '" -->'
 				return str('<a href="' + cl + url + '">')
 
 		nl = '\n' if start_slash=='/' else ''
@@ -335,8 +336,11 @@ class Article:
 			return False
 
 		# cheap attempt at minifying it
+		body=re.sub('<a>(.*?)</a>',lambda x: x.group(1), body, flags=re.S)
+		body=re.sub('<span>\s*</span>','', body, flags=re.M)
 		body=re.sub('[ \t]+',' ',body)
-		body=re.sub('[ \t]*[\n\r]+[ \t]*','\n',body)
+		body=re.sub(' *\n+ *','\n',body,flags=re.M)
+		body=re.sub(' *\n+ *','\n',body,flags=re.M)
 
 		print('write article:', self.dstpath)
 
@@ -539,6 +543,7 @@ def main():
 	ap.add_argument('-m', '--mainpage', nargs=1, default=[])
 	ap.add_argument('-f', '--fuck-it', action='store_true')
 	ap.add_argument('-c', '--conf', nargs=1, default=[None])
+	ap.add_argument('-r', '--rebuild-images', action='store_true')
 	args=ap.parse_args()
 
 	if args.conf[0] is not None:
@@ -546,6 +551,9 @@ def main():
 		with open(args.conf[0],'r') as f:
 			tmp=json.load(f)
 			cfg.update(tmp)
+
+	if args.rebuild_images:
+		cfg['REBUILD_IMAGES']=True
 
 	T_START=time.time()
 	print('My PID is', os.getpid())
