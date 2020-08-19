@@ -467,12 +467,16 @@ class IndexPage:
 			if r>0:
 				self.prev.save(r-1)
 		print('Write index page',self.filepath)
-		with open(self.filepath,'w') as f:
-			f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-			f.write('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n')
-			self.et.write(f,encoding='utf-8', xml_declaration=False)
-
-			#default_namespace='{http://www.w3.org/1999/xhtml}')
+		header='<?xml version="1.0" encoding="UTF-8"?>\n'
+		header+='<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
+		if cfg['SAVE_HTML']:
+			with open(self.filepath,'wb') as f:
+				f.write(header)
+				self.et.write(f,encoding='utf-8', xml_declaration=False)
+		if cfg['SAVE_HTML_GZ']:
+			with gzip.open(self.filepath+'.gz','wb') as f:
+				f.write(header)
+				self.et.write(f,encoding='utf-8', xml_declaration=False)
 
 class Indexer:
 	def __init__(self):

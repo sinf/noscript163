@@ -77,8 +77,11 @@ body>.main-content, article {
 // reformatted articles
 article {
 	color: lighten(orange,50%);
-	.title, strong, b {
+	.title {
 		color: orange;
+	}
+	strong, b {
+		font-style: bold;
 	}
 	div.info {
 		.time {
@@ -108,5 +111,10 @@ article {
 		.editor {
 		}
 	}
+}
+
+// hack to hide some weird extra title
+div.article-content + h2 {
+	display: none;
 }
 
