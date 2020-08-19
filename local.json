@@ -1,0 +1,13 @@
+{
+	"WEB_ROOT":".",
+	"ARTICLES":"zh-news",
+	"BACK":"/main.html",
+	"INDEX_BATCH":20,
+	"SAVE_IMG_SRC":true,
+	"SAVE_HTML":true,
+	"SAVE_HTML_GZ":true,
+	"SAVE_IMG_INFO":true,
+	"PID_FILE":"/tmp/news-aggregator.pid",
+	"NICE":false
+}
+
