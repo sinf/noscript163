@@ -9,7 +9,8 @@
 html {
 	font-size: 1.1em;
 	background-color: black;
-	background-size: 4in;
+	background-image: url(/bgsym.jpg);
+	background-size: 1in;
 	background-repeat: repeat;
 	color: white;
 }
@@ -83,26 +84,20 @@ article {
 	strong, b {
 		font-style: bold;
 	}
-	div.info {
+	.info {
 		.time {
 		}
 		.source {
 		}
 	}
-	div.photo {
-		img {
-			max-width: 100%;
-			width: 20em;
-			height: auto;
-			clear: both;
-		}
-		span {
-			// image caption 
-			// seems always empty
-			// usually the caption is in a <p> right after .photo
-		}
+	img {
+		display: block;
+		max-width: 100%;
+		width: 20em;
+		height: auto;
+		clear: both;
 	}
-	div.otitle_editor {
+	.otitle_editor {
 		margin-top: 0.75em;
 		color: lightgray;
 		.otitle {
@@ -114,7 +109,7 @@ article {
 }
 
 // hack to hide some weird extra title
-div.article-content + h2 {
+div.article-content + h2, .editor + h2, .otitle + h2 {
 	display: none;
 }
 

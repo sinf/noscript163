@@ -92,6 +92,12 @@ def try_remove(x):
 	except:
 		pass
 
+def try_link(x,y):
+	if os.path.exists(x):
+		try_remove(y)
+		os.link(x, y)
+		print(y,'=>',x)
+
 def be_nice():
 	if cfg['NICE']:
 		time.sleep(10)
@@ -159,6 +165,14 @@ def check_ext(url,valid):
 			return True
 	return False
 
+def write_html_files(path, func):
+	if cfg['SAVE_HTML']:
+		with open(path,'wb') as f:
+			func(f)
+	if cfg['SAVE_HTML_GZ']:
+		with gzip.open(path+'.gz','wb') as f:
+			func(f)
+
 class Article:
 
 	def __init__(self, item):
@@ -188,7 +202,8 @@ class Article:
 		self.back_url=None
 	
 	def exists(self):
-		return os.path.exists(self.dstpath)
+		return (os.path.exists(self.dstpath) or os.path.exists(self.dstpath+'.gz')) \
+			and not cfg.get('REBUILD_HTML',False)
 	
 	def shrink_img(self, src):
 		if 'javascript:' in src:
@@ -248,10 +263,11 @@ class Article:
 
 		if tag not in ('p','h1','h2','h3','h4','h5','h6',
 			'strong','em','table','th','tr','td','blockquote',
-			'b','i','small','span','div','br','hr','img',
+			'b','i','small','br','hr','img',
 			'ul','li','ol','a','section','figure','figcaption',
 			'sub','sup','tt','u','big','center','pre','q', 'article'):
 			#print('dropping extra tag:', whole)
+			return ''
 			return '<!-- TAG: ' + tag + ' -->'
 
 		cl=''
@@ -319,14 +335,16 @@ class Article:
 
 		body=m.group(0)
 
+		# safety
+		noscript='<!--SCRIPT REMOVED-->'
+		body=re.sub(r'<script>.*?</script>',noscript,body,flags=re.S|re.U|re.M)
+		body=re.sub(r'<\s*script.*?>.*?</\s*script\s*>',noscript,body,flags=re.S|re.U|re.M)
+		body=re.sub(r'<\s*script.*?/>',noscript,body,flags=re.S|re.U|re.M)
+		body=re.sub(r'<\s*script.*',noscript,body,flags=re.S|re.U|re.M)
+
 		# remove Notice: the content..NetEase..blahblah
 		body=re.sub(r'<p>特别声明.*?</p>','',body,flags=re.S)
 		body=re.sub(r'<p class="statement-en".*?</p>','',body,flags=re.S)
-
-		# safety
-		noscript='<!--SCRIPT REMOVED-->'
-		body=re.sub('<\s*script.*?script\s*/?>',noscript,body,flags=re.S|re.U)
-		body=re.sub('<\s*script.*',noscript,body,flags=re.S|re.U)
 
 		try:
 			# only keep some tags
@@ -349,13 +367,7 @@ class Article:
 		s+=self.footer()
 		s=S(s)
 
-		if cfg['SAVE_HTML']:
-			with open(self.dstpath,'wb') as f:
-				f.write(s)
-		if cfg['SAVE_HTML_GZ']:
-			with gzip.open(self.dstpath+'.gz','wb') as f:
-				f.write(s)
-
+		write_html_files(self.dstpath, lambda f,s=s: f.write(s))
 		return True
 	
 	def header(self):
@@ -394,19 +406,9 @@ class IndexPage:
 <meta name="author" content="ArhoM"/>
 <meta name="description" content="Aggregated script-free chinese news"/>
 </head><body>
-<nav><ul>
-<li><a href="'''+cfg['BACK']+'''">Main site</a></li>
-<li><a href="'''+cfg['LAST_PAGE_ALIAS']+'''">Most recent</a></li>
-<li><a class="prev" href="#">Previous page</a></li>
-<li><a class="next" href="#">Next page</a></li>
-</ul></nav>
+''' + self.nav() + '''
 <div class="main-content"></div>
-<nav><ul>
-<li><a href="'''+cfg['BACK']+'''">Main site</a></li>
-<li><a href="'''+cfg['LAST_PAGE_ALIAS']+'''">Most recent</a></li>
-<li><a class="prev" href="#">Previous page</a></li>
-<li><a class="next" href="#">Next page</a></li>
-</ul></nav>
+''' + self.nav() + '''
 <br/><br/><br/>
 </body></html>'''))
 		self.load()
@@ -414,6 +416,14 @@ class IndexPage:
 		if self.body is None:
 			raise Exception('oops. no body')
 		print('Index page',self.filepath,'(%d)'%self.count())
+	
+	def nav(self):
+		return '''<nav><ul>
+<li><a href="'''+cfg['BACK']+'''">Main site</a></li>
+<li><a href="'''+cfg['LAST_PAGE_ALIAS']+'''">Most recent</a></li>
+<li><a class="prev" href="#">Previous page</a></li>
+<li><a class="next" href="#">Next page</a></li>
+</ul></nav>'''
 	
 	def load(self):
 		if os.path.exists(self.filepath):
@@ -458,6 +468,11 @@ class IndexPage:
 			for a in aa:
 				a.attrib['href'] = url
 	
+	def write_xhtml(self, f):
+		f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+		f.write('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n')
+		self.et.write(f,encoding='utf-8', xml_declaration=False)
+	
 	def save(self, r=1):
 		if self.count() < 1:
 			return
@@ -467,16 +482,7 @@ class IndexPage:
 			if r>0:
 				self.prev.save(r-1)
 		print('Write index page',self.filepath)
-		header='<?xml version="1.0" encoding="UTF-8"?>\n'
-		header+='<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n'
-		if cfg['SAVE_HTML']:
-			with open(self.filepath,'wb') as f:
-				f.write(header)
-				self.et.write(f,encoding='utf-8', xml_declaration=False)
-		if cfg['SAVE_HTML_GZ']:
-			with gzip.open(self.filepath+'.gz','wb') as f:
-				f.write(header)
-				self.et.write(f,encoding='utf-8', xml_declaration=False)
+		write_html_files(self.filepath, lambda f,s=self: s.write_xhtml(f))
 
 class Indexer:
 	def __init__(self):
@@ -547,7 +553,8 @@ def main():
 	ap.add_argument('-m', '--mainpage', nargs=1, default=[])
 	ap.add_argument('-f', '--fuck-it', action='store_true')
 	ap.add_argument('-c', '--conf', nargs=1, default=[None])
-	ap.add_argument('-r', '--rebuild-images', action='store_true')
+	ap.add_argument('-r', '--rebuild-html', action='store_true')
+	ap.add_argument('-R', '--rebuild-images', action='store_true')
 	args=ap.parse_args()
 
 	if args.conf[0] is not None:
@@ -556,8 +563,8 @@ def main():
 			tmp=json.load(f)
 			cfg.update(tmp)
 
-	if args.rebuild_images:
-		cfg['REBUILD_IMAGES']=True
+	if args.rebuild_html: cfg['REBUILD_HTML']=True;
+	if args.rebuild_images: cfg['REBUILD_IMAGES']=True;
 
 	T_START=time.time()
 	print('My PID is', os.getpid())
@@ -631,10 +638,8 @@ def main():
 	idx.done()
 
 	p=the_art_dir(cfg['LAST_PAGE_ALIAS'])
-	try_remove(p)
-	if os.path.exists(idx.page.filepath):
-		os.link(idx.page.filepath, p)
-		print(p,'=>',idx.page.filepath)
+	try_link(idx.page.filepath, p)
+	try_link(idx.page.filepath+'.gz', p+'.gz')
 	
 	T_END=time.time()
 	T_TOT=T_END-T_START
