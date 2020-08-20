@@ -173,6 +173,11 @@ def write_html_files(path, func):
 		with gzip.open(path+'.gz','wb') as f:
 			func(f)
 
+def have_html_files(path):
+	return (not cfg.get('REBUILD_HTML',False)) \
+		and ((not cfg.get('SAVE_HTML',True)) or os.path.exists(path)) \
+		and ((not cfg.get('SAVE_HTML_GZ',True)) or os.path.exists(path+'.gz'))
+
 class Article:
 
 	def __init__(self, item):
@@ -202,8 +207,7 @@ class Article:
 		self.back_url=None
 	
 	def exists(self):
-		return (os.path.exists(self.dstpath) or os.path.exists(self.dstpath+'.gz')) \
-			and not cfg.get('REBUILD_HTML',False)
+		return have_html_files(self.dstpath)
 	
 	def shrink_img(self, src):
 		if 'javascript:' in src:
@@ -412,10 +416,17 @@ class IndexPage:
 <br/><br/><br/>
 </body></html>'''))
 		self.load()
-		self.body=self.et.find(".//"+self.ns+"body")
+		self.body=self.find2(self.et, ".//body")
 		if self.body is None:
-			raise Exception('oops. no body')
+			raise Exception('oops. body not found. xpath failed')
 		print('Index page',self.filepath,'(%d)'%self.count())
+
+	def find2(self, el, xpath):
+		# find2: stupid workaround to a stupid schrodinger's namespace problem
+		x=el.find(xpath)
+		if x is None:
+			x=el.find(xpath.replace('//','//'+self.ns))
+		return x
 	
 	def nav(self):
 		return '''<nav><ul>
@@ -432,14 +443,28 @@ class IndexPage:
 		return False
 	
 	def count(self):
-		# namespace crap always works differently. fuckin xpath
-		a=self.et.findall(".//"+self.ns+"div[@class='article-ref']")
-		b=self.body.findall(".//div[@class='article-ref']")
-		c=self.body.findall(".//"+self.ns+"div[@class='article-ref']")
-		return max((len(a),len(b),len(c)))
+		# fuck the namespace crap
+		a=self.body.findall(".//div[@class='article-ref']")
+		b=self.body.findall(".//"+self.ns+"div[@class='article-ref']")
+		return len(a) + len(b)
 	
 	def has(self, url):
-		return self.body.find(".//div[@class='article-ref']//a[@class='local'][@href='"+url+"']") is not None
+		a=self.body.find(".//div[@class='article-ref']//a[@class='local'][@href='"+url+"']")
+		b=self.body.find(".//"+self.ns+"div[@class='article-ref']//"+self.ns+"a[@class='local'][@href='"+url+"']")
+		return (a is not None) or (b is not None)
+	
+	def article_container(self):
+		pgc=self.find2(self.body, ".//div[@class='main-content']")
+		assert pgc is not None
+		return pgc
+	
+	def _sort_keyfunc(self, x):
+		d=self.find2(x, ".//span[@class='date']")
+		return time.strptime(d.text, '%Y-%m-%d %H:%M:%S')
+	
+	def sort(self):
+		c=self.article_container()
+		c[:]=sorted(c[:], key=lambda x: self._sort_keyfunc(x), reverse=True)
 	
 	def store(self, art):
 		if self.has(art.idx_url):
@@ -455,13 +480,11 @@ class IndexPage:
 '<a class="origin" href="'+art.src_url+'">Source: '+art.origin+'</a>\n'+\
 '</div>'
 		a=ET.fromstring(code)
-		pgc=self.body.find(self.ns+"div[@class='main-content']")
-		assert pgc is not None
-		pgc.append(a)
+		self.article_container().append(a)
 		print('Index page',self.filepath,'(%d)'%self.count())
 	
 	def set_ref(self, c, url):
-		aa=self.body.findall('.//'+self.ns+"a[@class='"+c+"']")
+		aa=self.find2(self.body, ".//a[@class='"+c+"']")
 		assert aa is not None
 		assert len(aa) > 0
 		if aa is not None:
@@ -476,6 +499,7 @@ class IndexPage:
 	def save(self, r=1):
 		if self.count() < 1:
 			return
+		self.sort()
 		if self.prev:
 			self.prev.set_ref('next',self.sib_url)
 			self.set_ref('prev',self.prev.sib_url)
@@ -595,6 +619,8 @@ def main():
 		fp_url='https://3g.163.com/touch/news/'
 		fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d-%H.html'))
 		frontpage = cached_gz(fp_cache, lambda u=fp_url:GET(u))
+	
+	# regex error: frontpage was accidentally .gz (mislabeled file extension)
 
 	# Fetch single-line json array from front page
 	# difference between topicData and channelData?

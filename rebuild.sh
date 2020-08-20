@@ -8,7 +8,10 @@ find zh-news/????-??/ -type f -name '*.html' -delete
 rm -f zh-news/last.xhtml zh-news/zh-news.db
 rm -f zh-news/*.xhtml
 
+c=""
+if [ -f local.json ]; then c="-clocal.json"; fi
+
 for f in $(echo zh-news/news_* | tr ' ' '\n' | sort -n); do
-	./art.py -f -m "$f" $*
+	./art.py -f -m "$f" "$c" $*
 done
 
