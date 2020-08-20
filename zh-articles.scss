@@ -71,12 +71,9 @@ a, a:visited {
 	}
 }
 
+// reformatted articles
 body>.main-content, article {
 	margin: 0 0.5em 0 0.5em;
-}
-
-// reformatted articles
-article {
 	color: lighten(orange,50%);
 	.title {
 		color: orange;

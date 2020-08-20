@@ -57,6 +57,7 @@ cfg={
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
 <link rel="stylesheet" type="text/css" href="zh-articles.css"/>
+<link rel="icon" href="/favicon.gif"/>
 '''.encode('utf-8'),
 
 # and all article documents include this
@@ -68,6 +69,7 @@ cfg={
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
 <link rel="stylesheet" type="text/css" href="../zh-articles.css"/>
+<link rel="icon" href="/favicon.gif"/>
 '''.encode('utf-8'),
 }
 
@@ -152,7 +154,7 @@ def scanJ(html, r):
 def S(x):
 	if type(x) is unicode:
 		return x.encode('utf-8')
-	return x
+	return str(x)
 
 def discard_url_params(url):
 	i=url.find('?')
@@ -180,6 +182,17 @@ def have_html_files(path):
 
 class Article:
 
+	def setup(self, item):
+		""" set self. docid, src_url, title, desc, origin """
+		assert False
+
+	def scan_article_content(self, html):
+		"""
+		Cut out article html (to be regex filtered) from a full webpage
+		Return string. Or return None to indicate the page was bad
+		"""
+		assert False
+
 	def __init__(self, item):
 		""" item needs to have
 		link : url to some .html file
@@ -187,22 +200,21 @@ class Article:
 		title or docid (optional)
 		digest (optional)
 		"""
-		self.j=item
-		self.docid=S(self.j['docid'])
-		self.src_url = S(item['link'])
-		if '?' in self.src_url:
-			self.src_url = self.src_url[:self.src_url.find('?')]
-		self.title=S(item.get('title',self.docid))
-		# digest: truncated description
-		self.desc=S(item.get('digest','no description'))
-		self.origin=S(u'3g.163.com 手机网易网')
-		self.bname=self.docid+'.html'
+		self.setup(item)
+		assert type(self.docid) is str
+		assert type(self.src_url) is str
+		assert type(self.title) is str
+		assert type(self.desc) is str
+		assert type(self.origin) is str
+
 		self.date=item['ptime_py_']
+		self.bname=self.docid+'.html'
 		self.dir_ym = time.strftime('%Y-%m',self.date)
 		self.dstdir_r = art_dir(self.dir_ym)
 		self.dstdir=the_dir(self.dstdir_r)
 		self.dstpath=os.path.join(self.dstdir,self.bname)
-		# how this is addressed from index pages
+
+		# idx_url: how this article is addressed from index pages
 		self.idx_url = self.dir_ym + '/' + self.bname
 		self.back_url=None
 	
@@ -210,6 +222,9 @@ class Article:
 		return have_html_files(self.dstpath)
 	
 	def shrink_img(self, src):
+		""" Accepts a source URL. Downloads the image, recompresses to webp, saves. Teturns url for a local document """
+		if should_terminate():
+			raise ImportError('program kill switch')
 		if 'javascript:' in src:
 			print('rejecting javascript img hack:', src)
 			return None
@@ -228,7 +243,7 @@ class Article:
 			except:
 				print('FAILED to get image:', src)
 				return None
-			cmd=cfg['CONVERT']+' '+org+" -resize '800000@>' -quality 30 "+dst
+			cmd=cfg['CONVERT']+' '+org+" -fuzz 1% -trim +repage -resize '550000@>' -quality 30 "+dst
 			if cfg['NICE']:
 				cmd=cfg['CPULIMIT']+' -q -l 5 -- '+cmd
 			print(cmd)
@@ -242,19 +257,39 @@ class Article:
 			print('Write image', dst)
 		return url
 	
-	def fix_img(self,m):
-		if should_terminate():
-			raise ImportError('program kill switch')
-		src=m.group(1)
-		data_src=m.group(2)
-		tailer=m.group(3)
-		url = self.shrink_img(src)
+	def filter_img163(self, attr, cl):
+		""" Reformat <img ...attr...> tag
+		attr: string (xx="yy" zz="ww" ...)
+		cl: string (class="blabhblah ...")
+		"""
+		ds=re.search(r'data-src="([^"]+)"', attr)
+		ds=ds if ds is not None else re.search(r'src="([^"]+)"', attr)
+		if ds is None:
+			#print('dropping weird img:', whole)
+			return '<!-- IMG REMOVED -->'
+		url=self.shrink_img(ds.group(1))
 		if url is None:
-			return ''
-		s='<img src="' + url + '"/>'
-		if '<script' not in tailer:
-			s += tailer
-		return s
+			return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
+		ds=' src="'+url+'"'
+		alt=re.search(r'alt="([^"]+)"', attr)
+		alt='' if alt is None else ' '+alt.group(0)
+		return str('<img' + cl + alt + ds + '/>')
+	
+	def filter_a163(self, attr, cl):
+		url=''
+		ref=re.search(r'href="([^"]+)"', attr)
+		if ref is not None:
+			url=ref.group(1).strip().lower()
+			url=discard_url_params(url)
+		Js='javascript:' in url
+		Ds='data-src' in attr
+		http=url.startswith('http://')
+		https=url.startswith('https://')
+		ext_ok=check_ext(url,('.html','.htm','.xht','.xhtml','.cgi','.php')) #,'.png','.jpg','.jpeg','.gif','.webp'))
+		if Js or Ds or (not http and not https) or not ext_ok:
+			#print('dropping weird link:', whole)
+			return '<a><!-- LINK "' + url + '" -->'
+		return str('<a href="' + cl + url + '">')
 	
 	def filter_tag(self, x):
 		whole=x.group(0)
@@ -269,7 +304,7 @@ class Article:
 			'strong','em','table','th','tr','td','blockquote',
 			'b','i','small','br','hr','img',
 			'ul','li','ol','a','section','figure','figcaption',
-			'sub','sup','tt','u','big','center','pre','q', 'article'):
+			'sub','sup','tt','u','big','center','pre','q'):
 			#print('dropping extra tag:', whole)
 			return ''
 			return '<!-- TAG: ' + tag + ' -->'
@@ -282,33 +317,9 @@ class Article:
 			Id='' if Id is None else ' '+Id.group(0)
 			cl=Id+cl
 			if tag == 'img':
-				ds=re.search(r'data-src="([^"]+)"', attr)
-				ds=ds if ds is not None else re.search(r'src="([^"]+)"', attr)
-				if ds is None:
-					#print('dropping weird img:', whole)
-					return '<!-- IMG REMOVED -->'
-				url=self.shrink_img(ds.group(1))
-				if url is None:
-					return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
-				ds=' src="'+url+'"'
-				alt=re.search(r'alt="([^"]+)"', attr)
-				alt='' if alt is None else ' '+alt.group(0)
-				return str('<img' + cl + alt + ds + '/>')
+				return self.filter_img163(attr, cl)
 			if tag == 'a':
-				url=''
-				ref=re.search(r'href="([^"]+)"', attr)
-				if ref is not None:
-					url=ref.group(1).strip().lower()
-					url=discard_url_params(url)
-				Js='javascript:' in url
-				Ds='data-src' in attr
-				http=url.startswith('http://')
-				https=url.startswith('https://')
-				ext_ok=check_ext(url,('.html','.htm','.xht','.xhtml','.cgi','.php')) #,'.png','.jpg','.jpeg','.gif','.webp'))
-				if Js or Ds or (not http and not https) or not ext_ok:
-					#print('dropping weird link:', whole)
-					return '<a><!-- LINK "' + url + '" -->'
-				return str('<a href="' + cl + url + '">')
+				return self.filter_a163(attr, cl)
 
 		nl = '\n' if start_slash=='/' else ''
 		return str('<' + start_slash + tag + cl + end_slash + '>' + nl)
@@ -327,17 +338,9 @@ class Article:
 			self.desc=de.group(1)
 
 		# dig out the article
-		m=re.search(r'<article[^>]*>.*</article>', html, re.I|re.S)
-		if m is None:
-			print('failed to get article', self.docid)
+		body = self.scan_article_content(html)
+		if body is None:
 			return False
-
-		art_tag=m.group(0)[:100]
-		if 'type="imgnews"' in art_tag or 'class="topNews"' in art_tag:
-			# clickbait trash compilation
-			return False
-
-		body=m.group(0)
 
 		# safety
 		noscript='<!--SCRIPT REMOVED-->'
@@ -367,7 +370,9 @@ class Article:
 		print('write article:', self.dstpath)
 
 		s=self.header()
+		s+='<div class="main-content">\n'
 		s+=body
+		s+='</div>\n'
 		s+=self.footer()
 		s=S(s)
 
@@ -396,30 +401,63 @@ class Article:
 	def footer(self):
 		return self.make_back_url()+'</body>\n</html>\n'
 
+class Article163(Article):
+
+	def setup(self, item):
+		self.docid=S(item['docid'])
+		self.src_url = discard_url_params(S(item['link']))
+		self.title=S(item.get('title',self.docid))
+		# digest: truncated description
+		self.desc=S(item.get('digest','no description'))
+		self.origin=S(u'3g.163.com 手机网易网')
+	
+	def scan_article_content(self, html):
+		""" Works for 163 """
+
+		# dig out the article
+		m=re.search(r'<article[^>]*>(.*)</article>', html, re.I|re.S)
+		if m is None:
+			print('failed to get article', self.docid)
+			return None
+
+		art_tag=m.group(0)[:100]
+		if 'type="imgnews"' in art_tag or 'class="topNews"' in art_tag:
+			print('rejecting clickbait trash compilation')
+			return None
+
+		body=m.group(1)
+		return body
+	
+class ArticleCCTV(Article):
+	def setup(self, item):
+		pass
+	def scan_article_content(self, html):
+		pass
+
 class IndexPage:
 	def __init__(self, basename):
-		title=time.strftime('Chinese news %Y-%m-%d')
+		title=time.strftime('News %Y-%m-%d')
 		self.sib_url=basename
 		self.filepath=the_art_dir(basename)
 		self.next=None
 		self.prev=None
 		self.ns='{http://www.w3.org/1999/xhtml}'
-		self.et=ET.ElementTree( \
-		ET.fromstring(cfg['HEAD_INDEX']+\
+		head_code=cfg['HEAD_INDEX']+\
 	'<title>' + title + '''</title>
 <meta name="author" content="ArhoM"/>
-<meta name="description" content="Aggregated script-free chinese news"/>
+<meta name="description" content="News, no scripts"/>
 </head><body>
 ''' + self.nav() + '''
 <div class="main-content"></div>
 ''' + self.nav() + '''
 <br/><br/><br/>
-</body></html>'''))
+</body></html>'''
+		self.et=ET.ElementTree(ET.fromstring(head_code))
 		self.load()
 		self.body=self.find2(self.et, ".//body")
 		if self.body is None:
 			raise Exception('oops. body not found. xpath failed')
-		print('Index page',self.filepath,'(%d)'%self.count())
+		print('Index page initialized',self.filepath,'(%d)'%self.count())
 
 	def find2(self, el, xpath):
 		# find2: stupid workaround to a stupid schrodinger's namespace problem
@@ -441,35 +479,25 @@ class IndexPage:
 			self.et=ET.parse(self.filepath)
 			return True
 		return False
-	
-	def count(self):
-		# fuck the namespace crap
-		a=self.body.findall(".//div[@class='article-ref']")
-		b=self.body.findall(".//"+self.ns+"div[@class='article-ref']")
-		return len(a) + len(b)
-	
-	def has(self, url):
-		a=self.body.find(".//div[@class='article-ref']//a[@class='local'][@href='"+url+"']")
-		b=self.body.find(".//"+self.ns+"div[@class='article-ref']//"+self.ns+"a[@class='local'][@href='"+url+"']")
-		return (a is not None) or (b is not None)
-	
+
 	def article_container(self):
 		pgc=self.find2(self.body, ".//div[@class='main-content']")
 		assert pgc is not None
 		return pgc
+	
+	def count(self):
+		return len(self.article_container().getchildren())
 	
 	def _sort_keyfunc(self, x):
 		d=self.find2(x, ".//span[@class='date']")
 		return time.strptime(d.text, '%Y-%m-%d %H:%M:%S')
 	
 	def sort(self):
+		# newest articles first
 		c=self.article_container()
 		c[:]=sorted(c[:], key=lambda x: self._sort_keyfunc(x), reverse=True)
 	
 	def store(self, art):
-		if self.has(art.idx_url):
-			print('Index already has', art.idx_url)
-			return
 		code=\
 '<div class="article-ref">\n' +\
 '<a class="local" href="'+art.idx_url+'">\n' +\
@@ -480,16 +508,14 @@ class IndexPage:
 '<a class="origin" href="'+art.src_url+'">Source: '+art.origin+'</a>\n'+\
 '</div>'
 		a=ET.fromstring(code)
-		self.article_container().append(a)
-		print('Index page',self.filepath,'(%d)'%self.count())
+		self.article_container().insert(0,a)
+		print('Index page appended',self.filepath,'(%d)'%self.count())
 	
 	def set_ref(self, c, url):
-		aa=self.find2(self.body, ".//a[@class='"+c+"']")
-		assert aa is not None
-		assert len(aa) > 0
-		if aa is not None:
-			for a in aa:
-				a.attrib['href'] = url
+		aa=self.body.findall(".//a[@class='"+c+"']")
+		aa+=self.body.findall(".//"+self.ns+"a[@class='"+c+"']")
+		for a in aa:
+			a.attrib['href'] = url
 	
 	def write_xhtml(self, f):
 		f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -498,9 +524,13 @@ class IndexPage:
 	
 	def save(self, r=1):
 		if self.count() < 1:
+			print('empty index page. not saving')
 			return
 		self.sort()
-		if self.prev:
+		if self.prev is None:
+			print(self.filepath+': previous page not set')
+		else:
+			print(self.filepath+': previous page = ', self.prev.filepath)
 			self.prev.set_ref('next',self.sib_url)
 			self.set_ref('prev',self.prev.sib_url)
 			if r>0:
@@ -525,6 +555,7 @@ class Indexer:
 'SELECT * FROM indexes ORDER BY id DESC LIMIT 2;'\
 			).fetchall()
 		if rows is None or len(rows)==0:
+			print('This will be the first page in the database')
 			self.next_id = 1
 			self.page=None
 			self.new_page()
@@ -532,19 +563,21 @@ class Indexer:
 			self.next_id = rows[0][0] + 1
 			self.page = IndexPage(rows[0][2])
 			if len(rows)>1:
-				prev=IndexPage(rows[1][2])
-				prev.next=self.page
-				self.page.prev=prev
+				print('got previous row', rows[1])
+				self.page.prev=IndexPage(rows[1][2])
+				self.page.prev.next=self.page
 	
 	def new_page(self):
 		i=self.next_id
 		p=str(i)+'.xhtml'
-		prev=self.page
-		self.page = IndexPage(p)
-		if prev:
-			prev.next=self.page
-			self.page.prev=prev
 		self.next_id += 1
+		tmp=self.page
+		self.page = IndexPage(p)
+		print('start editing a new page:', self.page.filepath)
+		if tmp is not None:
+			print('previous page was', tmp.filepath)
+			tmp.next = self.page
+			self.page.prev = tmp
 		self.sqc.execute('INSERT INTO indexes VALUES (?,?,?)', (i, time.strftime('%Y-%m-%d'), p))
 		self.sq.commit()
 	
@@ -579,7 +612,11 @@ def main():
 	ap.add_argument('-c', '--conf', nargs=1, default=[None])
 	ap.add_argument('-r', '--rebuild-html', action='store_true')
 	ap.add_argument('-R', '--rebuild-images', action='store_true')
+	ap.add_argument('-I', '--rebuild-index-only', action='store_true')
 	args=ap.parse_args()
+
+	print('\nNews article archiver & reformatter started')
+	print('Time:', time.strftime('%Y-%d-%m %H:%M:%S'))
 
 	if args.conf[0] is not None:
 		print('reading config', args.conf[0])
@@ -629,32 +666,32 @@ def main():
 	items=[]
 
 	items+=chanData['listdata']['data']
-	#items+=chanData['topdata']['data']
-	#for cat,xx in topicData['data'].items(): items+=xx;
+
+	for xx in chanData['topdata']['data']:
+		assert type(xx) is dict
+		items+=[xx]
 
 	idx = Indexer()
 
-	for it in items:
-		it['ptime_py_'] = time.strptime(it['ptime'],'%Y-%m-%d %H:%M:%S')
-
-	for item in sorted(items, key=lambda it: it['ptime_py_'], reverse=True):
+	for item in items:
 		assert type(item) is dict
 		if False:
 			print()
 			for z in 'ptime','title','digest','link','type','docid', 'category', 'channel':
 				print(z,item.get(z,None))
 
+		item['ptime_py_'] = time.strptime(item['ptime'],'%Y-%m-%d %H:%M:%S')
 		link=item['link']
 
 		if check_ext(link, ('.html','.xhtml','.cgi','.php')):
-			art=Article(item)
+			art=Article163(item)
 			if should_terminate():
 				break
 			if not art.exists():
 				print('Process:',link)
 				art.fetch()
 				art.back_url = idx.article_back_ref()
-				if art.write_html():
+				if (cfg.get('REBUILD_HTML',False) and args.rebuild_index_only) or art.write_html():
 					idx.put(art)
 				be_nice()
 
@@ -669,7 +706,7 @@ def main():
 	
 	T_END=time.time()
 	T_TOT=T_END-T_START
-	print('Operation took', T_TOT, 'seconds')
+	print('Operation took', '%.0f min %.0f s' % (T_TOT/60,T_TOT%60), 'seconds')
 
 if __name__=="__main__":
 	try:
