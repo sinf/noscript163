@@ -7,7 +7,7 @@ from __future__ import print_function
 
 cfg={
 # local filesystem path where things are stored
-	'WEB_ROOT':'/home4/wlmrnkbl/news.amahl.fi',
+	'WEB_ROOT':'.',
 
 # filename (under WEB_ROOT/ARTICLES/)
 # of a copy of the most recent index page
@@ -38,7 +38,7 @@ cfg={
 	'SAVE_IMG_INFO':True,
 
 # save PID to this file (comment if don't want)
-	'PID_FILE':'/home4/wlmrnkbl/logs/news-aggregator.pid',
+	'PID_FILE':'/tmp/news-aggregator.pid',
 
 # enable delays to keep server CPU usage low
 	'NICE':True,
@@ -243,7 +243,7 @@ class Article:
 			except:
 				print('FAILED to get image:', src)
 				return None
-			cmd=cfg['CONVERT']+' '+org+" -fuzz 1% -trim +repage -resize '550000@>' -quality 30 "+dst
+			cmd=cfg['CONVERT']+' '+org+" -fuzz 1% -trim +repage -resize '500000@>' -quality 30 "+dst
 			if cfg['NICE']:
 				cmd=cfg['CPULIMIT']+' -q -l 5 -- '+cmd
 			print(cmd)
