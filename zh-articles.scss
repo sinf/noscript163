@@ -9,7 +9,7 @@
 html {
 	font-size: 1.1em;
 	background-color: black;
-	background-image: url(/bgsym.jpg);
+	background-image: url(bgsym.jpg);
 	background-size: 1in;
 	background-repeat: repeat;
 	color: white;
@@ -87,9 +87,10 @@ body>.main-content, article {
 		.source {
 		}
 	}
-	img {
+	img, object {
 		display: block;
 		max-width: 100%;
+		max-width: 100vw;
 		width: 20em;
 		height: auto;
 		clear: both;
@@ -108,5 +109,12 @@ body>.main-content, article {
 // hack to hide some weird extra title
 div.article-content + h2, .editor + h2, .otitle + h2 {
 	display: none;
+}
+
+.unsupp {
+	color: pink;
+	margin: 0.5em 0 0.5em 0;
+	border: 1px dotted pink;
+	padding: 0.1em;
 }
 

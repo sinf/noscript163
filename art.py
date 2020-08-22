@@ -57,7 +57,7 @@ cfg={
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
 <link rel="stylesheet" type="text/css" href="zh-articles.css"/>
-<link rel="icon" href="/favicon.gif"/>
+<link rel="icon" href="favicon.gif"/>
 '''.encode('utf-8'),
 
 # and all article documents include this
@@ -69,7 +69,7 @@ cfg={
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
 <link rel="stylesheet" type="text/css" href="../zh-articles.css"/>
-<link rel="icon" href="/favicon.gif"/>
+<link rel="icon" href="../favicon.gif"/>
 '''.encode('utf-8'),
 }
 
@@ -229,7 +229,7 @@ class Article:
 			print('rejecting javascript img hack:', src)
 			return None
 		bn=os.path.basename(src)
-		if not check_ext(bn,('.jpg','.gif','.png','.webp')):
+		if not check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
 			print('rejecting image because of unknown suffix:', bn[-4:])
 			return None
 		org=os.path.join(self.dstdir, 'img0', bn)
@@ -264,16 +264,21 @@ class Article:
 		"""
 		ds=re.search(r'data-src="([^"]+)"', attr)
 		ds=ds if ds is not None else re.search(r'src="([^"]+)"', attr)
-		if ds is None:
+		if ds is None or 'javascript:' in ds.group(1).lower():
 			#print('dropping weird img:', whole)
 			return '<!-- IMG REMOVED -->'
-		url=self.shrink_img(ds.group(1))
+		src_url=ds.group(1)
+		url=self.shrink_img(src_url)
 		if url is None:
 			return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
 		ds=' src="'+url+'"'
 		alt=re.search(r'alt="([^"]+)"', attr)
 		alt='' if alt is None else ' '+alt.group(0)
-		return str('<img' + cl + alt + ds + '/>')
+		#return str('<img' + cl + alt + ds + '/>')
+		return str('\n<object' + cl + ' type="image/webp"' + ' data="'+url \
+			+ '"><div class="unsupp">Your browser does not support this image format. ' \
+			+ '<a href="'+src_url+'">Link to original image</a></div>'
+			+ alt + '</object>\n')
 	
 	def filter_a163(self, attr, cl):
 		url=''
@@ -359,6 +364,11 @@ class Article:
 		except ImportError:
 			# manual termination
 			return False
+
+		# not sure whats up with these non-links
+		body=re.sub('<p>https?://[^<]*</p>', \
+			lambda x: '<!-- '+x.group(0)+' -->\n', \
+			body, flags=re.M|re.S)
 
 		# cheap attempt at minifying it
 		body=re.sub('<a>(.*?)</a>',lambda x: x.group(1), body, flags=re.S)
