@@ -7,10 +7,6 @@ add more source sites
 
 filter bad news out
 
-add master index
-
-only update last.xhtml when a full batch of news is available
-
 cctv
 fetch json of new articles
 	http://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/news_1.jsonp

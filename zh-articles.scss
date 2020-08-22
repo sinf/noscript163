@@ -118,3 +118,40 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 	padding: 0.1em;
 }
 
+#mainIdx {
+	padding: 0.5em;
+	text-align: center;
+	>* {
+		width: 60rem;
+		max-width: 100%;
+	}
+	h1 {
+		text-align: left;
+	}
+	.introd {
+		text-align: left;
+		display: inline-block;
+		margin: 0.5em 1em 0.5em 0;
+	}
+	.introd div:lang(en) {
+		font-size: 90.91%;
+	}
+	.recent {
+		display: inline-block;
+		margin: 1rem 0 0.5rem 0;
+		padding: .8rem .2rem .8rem .2rem;
+		background-color: #4D004D;
+		font-size: 150%;
+		text-shadow: 0.1em 0.1em 0.3em black;
+	}
+	.all {
+		display: inline-block;
+		.d {
+			display: inline-block;
+			float: left;
+			padding: 0.5em;
+			border: 1px dashed gray;
+		}
+	}
+}
+

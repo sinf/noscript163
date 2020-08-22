@@ -10,17 +10,17 @@ cfg={
 	'WEB_ROOT':'.',
 
 # filename (under WEB_ROOT/ARTICLES/)
-# of a copy of the most recent index page
+# of a hardlink to the most recent index page
 	'LAST_PAGE_ALIAS':'last.xhtml',
+
+# contains links to index pages
+	'MASTER_INDEX':'main.xhtml',
 
 #	relative to WEB_ROOT
 # index files are called WEB_ROOT/ARTICLES/idx%d.html
 # and articles:
 # WEB_ROOT/ARTICLES/YYYY-MM/(*.xhtml,*.webp)
 	'ARTICLES':'zh-news',
-
-# url that returns to front page or whatever
-	'BACK':'/main.html',
 
 # how many articles per index page
 	'INDEX_BATCH':20,
@@ -261,7 +261,7 @@ class Article:
 		fallback=os.path.join(self.dstdir, 'img', no_suf+'.jpg')
 		if os.path.exists(dst) and (rebuild or not os.path.exists(fallback)):
 			# make a fallback JPG. save CPU: downscale the already downscaled image
-			shell_cmd(cfg['CONVERT']+' '+dst+" -fuzz 1% -trim +repage -resize '100000@>' -quality 30 "+fallback)
+			shell_cmd(cfg['CONVERT']+' '+dst+" -fuzz 1% -trim +repage -resize '200000@>' -quality 40 "+fallback)
 		return url
 	
 	def filter_img163(self, attr, cl):
@@ -337,6 +337,12 @@ class Article:
 		self.src_html=cached_gz(self.dstpath+'.in', \
 			lambda:GET(self.src_url))
 	
+	def is_poisoned(self):
+		return os.path.exists(self.dstpath+'.skip')
+	
+	def mark_poisoned(self):
+		open(self.dstpath+'.skip','w').close()
+	
 	def write_html(self):
 		html=self.src_html
 
@@ -397,7 +403,7 @@ class Article:
 + '<title>' + self.title +'</title>\n' \
 + '<meta name="description" content="' \
 + self.desc + '"/>\n' \
-+ '</head>\n<body>\n'
++ '</head>\n<body id="art_body">\n'
 		h+=self.make_back_url()
 		return h
 	
@@ -436,6 +442,7 @@ class Article163(Article):
 		art_tag=m.group(0)[:100]
 		if 'type="imgnews"' in art_tag or 'class="topNews"' in art_tag:
 			print('rejecting clickbait trash compilation')
+			self.mark_poisoned()
 			return None
 
 		body=m.group(1)
@@ -448,8 +455,9 @@ class ArticleCCTV(Article):
 		pass
 
 class IndexPage:
-	def __init__(self, basename):
+	def __init__(self, seq_id, basename):
 		title=time.strftime('News %Y-%m-%d')
+		self.seq_id=seq_id
 		self.sib_url=basename
 		self.filepath=the_art_dir(basename)
 		self.next=None
@@ -459,7 +467,7 @@ class IndexPage:
 	'<title>' + title + '''</title>
 <meta name="author" content="ArhoM"/>
 <meta name="description" content="News, no scripts"/>
-</head><body>
+</head><body id="subIdx">
 ''' + self.nav() + '''
 <div class="main-content"></div>
 ''' + self.nav() + '''
@@ -481,7 +489,7 @@ class IndexPage:
 	
 	def nav(self):
 		return '''<nav><ul>
-<li><a href="'''+cfg['BACK']+'''">Main site</a></li>
+<li><a href="'''+cfg['MASTER_INDEX']+'''">Index</a></li>
 <li><a href="'''+cfg['LAST_PAGE_ALIAS']+'''">Most recent</a></li>
 <li><a class="prev" href="#">Previous page</a></li>
 <li><a class="next" href="#">Next page</a></li>
@@ -501,19 +509,31 @@ class IndexPage:
 	def count(self):
 		return len(self.article_container().getchildren())
 	
+	def get_date_str(self):
+		c=self.article_container()
+		d=self.find2(c, ".//span[@class='date']")
+		return d.text
+	
 	def is_full(self):
 		return self.count() >= cfg['INDEX_BATCH']
 	
-	def _sort_keyfunc(self, x):
+	def _date_of(self, x):
 		d=self.find2(x, ".//span[@class='date']")
 		return time.strptime(d.text, '%Y-%m-%d %H:%M:%S')
 	
 	def sort(self):
 		# newest articles first
 		c=self.article_container()
-		c[:]=sorted(c[:], key=lambda x: self._sort_keyfunc(x), reverse=True)
+		c[:]=sorted(c[:], key=lambda x: self._date_of(x), reverse=True)
+
+	def has(self, url):
+		a=self.body.find(".//div[@class='article-ref']//a[@class='local'][@href='"+url+"']")
+		b=self.body.find(".//"+self.ns+"div[@class='article-ref']//"+self.ns+"a[@class='local'][@href='"+url+"']")
+		return (a is not None) or (b is not None)
 	
 	def store(self, art):
+		if self.has(art.idx_url):
+			return
 		code=\
 '<div class="article-ref">\n' +\
 '<a class="local" href="'+art.idx_url+'">\n' +\
@@ -538,11 +558,15 @@ class IndexPage:
 		f.write('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n')
 		self.et.write(f,encoding='utf-8', xml_declaration=False)
 	
-	def save(self, r=1):
+	def save(self, sqc, r=1):
 		if self.count() < 1:
 			print('empty index page. not saving')
 			return
 		self.sort()
+		if self.count()>0: # get_date_str fail if count==0
+			i=self.seq_id
+			d=self.get_date_str()
+			sqc.execute('UPDATE indexes SET date = ? WHERE id = ?', (d,i))
 		if self.prev is None:
 			print(self.filepath+': previous page not set')
 		else:
@@ -550,7 +574,7 @@ class IndexPage:
 			self.prev.set_ref('next',self.sib_url if self.is_full() else '#')
 			self.set_ref('prev',self.prev.sib_url)
 			if r>0:
-				self.prev.save(r-1)
+				self.prev.save(sqc, r-1)
 		print('Write index page',self.filepath)
 		write_html_files(self.filepath, lambda f,s=self: s.write_xhtml(f))
 
@@ -577,10 +601,10 @@ class Indexer:
 			self.new_page()
 		else:
 			self.next_id = rows[0][0] + 1
-			self.page = IndexPage(rows[0][2])
+			self.page = IndexPage(rows[0][0], rows[0][2])
 			if len(rows)>1:
 				print('got previous row', rows[1])
-				self.page.prev=IndexPage(rows[1][2])
+				self.page.prev=IndexPage(rows[1][0], rows[1][2])
 				self.page.prev.next=self.page
 	
 	def last_full_page(self):
@@ -589,18 +613,63 @@ class Indexer:
 			p=p.prev
 		return p
 	
+	def write_master_index_(self, f):
+		f.write(cfg['HEAD_INDEX'])
+		f.write('''<title>News, no scripts</title>
+<meta name="author" content="ArhoM"/>
+<meta name="description" content="News, no scripts"/>
+</head><body id="mainIdx">
+''')
+		f.write('<a class="recent" href="'\
++cfg['LAST_PAGE_ALIAS']+'">&gt;&gt;&gt; Enter &lt;&lt;&lt;</a><br/>\n')
+		f.write(u'''<div class="introd"><div lang="en">
+<h1>About</h1>
+<p>To improve my chinese I read chinese news. But news apps and websites suck! They drain battery with ads, have long latency and random junk, track the user and have broken HTTPS. This service solves those problems. It downloads news each day and reformats them into static HTML without javascript. Images are compressed to 5% of the original size. So far it only supports one site, 163.com. I will add more later.</p>
+</div>
+<div lang="zh">
+<h1>介绍</h1>
+<p>为了提高我的中文，我会偶尔看看中国的新闻网站。可是你们网站太慢了。装满了那么多javascript垃圾我手机的电池要着火了！服务器遥远，有广告，有跟踪曲奇，有长城，https有毛病。为了解决这些问题，我编程了这个服务。它每天几次下载新闻，移除script垃圾，把单纯的文章写成简单不变的html。它把图片数据微缩到5%的大小。在欧洲看我的网页应该比原来的网页快很多。目前只有一个新闻来源，163.com。你如果觉得这服务有用，可以给我建议接下来加什么来源。</p>
+</div></div>
+'''.encode('utf-8'))
+		f.write('<div class="all"><h1>Archive</h1>\n')
+		s = self.sqc.execute( \
+'SELECT * FROM indexes ORDER BY id DESC;')
+		rows = s.fetchall()
+		if rows is not None and len(rows)>0:
+			date = None
+			for i,d,html_path in rows:
+				d=d[:10] # YYYY-MM-DD; drop the rest
+				if d != date:
+					if date is not None:
+						f.write('</div>')
+					date=d
+					f.write('<div class="d">'+d+'<br/>\n')
+				f.write('<a href="'+html_path+'">')
+				f.write(str(i))
+				f.write('</a>\n')
+			f.write('</div>')
+		else:
+			f.write('No articles yet\n')
+		f.write('</div></body></html>\n')
+	
+	def write_master_index(self):
+		write_html_files(
+			the_art_dir(cfg['MASTER_INDEX']),
+			lambda f: self.write_master_index_(f))
+	
 	def new_page(self):
 		i=self.next_id
 		p=str(i)+'.xhtml'
 		self.next_id += 1
 		tmp=self.page
-		self.page = IndexPage(p)
+		self.page = IndexPage(i, p)
 		print('start editing a new page:', self.page.filepath)
 		if tmp is not None:
 			print('previous page was', tmp.filepath)
 			tmp.next = self.page
 			self.page.prev = tmp
-		self.sqc.execute('INSERT INTO indexes VALUES (?,?,?)', (i, time.strftime('%Y-%m-%d'), p))
+		d=time.strftime('%Y-%d-%m %H:%M:%S')#placeholder time
+		self.sqc.execute('INSERT INTO indexes VALUES (?,?,?)', (i, d, p))
 		self.sq.commit()
 	
 	def put(self, art):
@@ -614,12 +683,14 @@ class Indexer:
 		))
 		self.sq.commit()
 		if self.page.count() >= cfg['INDEX_BATCH']:
-			self.page.save()
+			self.page.save(self.sqc)
 			self.new_page()
 		self.page.store(art)
 
 	def done(self):
-		self.page.save()
+		self.page.save(self.sqc)
+		self.sq.commit()
+		self.write_master_index()
 		self.sqc.close()
 		self.sq.commit()
 	
@@ -694,6 +765,11 @@ def main():
 		items+=[xx]
 
 	idx = Indexer()
+	sq = idx.sq
+
+	rebuild_index_only=\
+		cfg.get('REBUILD_HTML',False) \
+		and args.rebuild_index_only
 
 	for item in items:
 		assert type(item) is dict
@@ -709,11 +785,11 @@ def main():
 			art=Article163(item)
 			if should_terminate():
 				break
-			if not art.exists():
+			if not art.exists() and not art.is_poisoned():
 				print('Process:',link)
 				art.fetch()
 				art.back_url = idx.article_back_ref()
-				if (cfg.get('REBUILD_HTML',False) and args.rebuild_index_only) or art.write_html():
+				if rebuild_index_only or art.write_html():
 					idx.put(art)
 				be_nice()
 
