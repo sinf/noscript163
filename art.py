@@ -71,6 +71,9 @@ cfg={
 <link rel="stylesheet" type="text/css" href="../zh-articles.css"/>
 <link rel="icon" href="../favicon.gif"/>
 '''.encode('utf-8'),
+
+	'GET_163':True,
+	'GET_CCTV':True,
 }
 
 import urllib2
@@ -201,20 +204,16 @@ class Article:
 		assert False
 
 	def __init__(self, item):
-		""" item needs to have
-		link : url to some .html file
-		ptime_py : python datetime
-		title or docid (optional)
-		digest (optional)
-		"""
 		self.setup(item)
+
+		# Article subclass .setup() shall set these:
 		assert type(self.docid) is str
 		assert type(self.src_url) is str
 		assert type(self.title) is str
 		assert type(self.desc) is str
 		assert type(self.origin) is str
 
-		self.date=item['ptime_py_']
+		self.date=item['article_date_py_']
 		self.bname=self.docid+'.html'
 		self.dir_ym = time.strftime('%Y-%m',self.date)
 		self.dstdir_r = art_dir(self.dir_ym)
@@ -271,10 +270,15 @@ class Article:
 		"""
 		ds=re.search(r'data-src="([^"]+)"', attr)
 		ds=ds if ds is not None else re.search(r'src="([^"]+)"', attr)
-		if ds is None or 'javascript:' in ds.group(1).lower():
+		if ds is None:
+			return ''
+		src_url=ds.group(1)
+		if 'javascript:' in src_url.lower():
 			#print('dropping weird img:', whole)
 			return '<!-- IMG REMOVED -->'
-		src_url=ds.group(1)
+		if src_url.startswith('//'):
+			# CCTV images
+			src_url = 'http:' + src_url
 		url=self.shrink_img(src_url)
 		if url is None:
 			return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
@@ -423,6 +427,12 @@ class Article:
 class Article163(Article):
 
 	def setup(self, item):
+		""" item needs to have
+		link : url to some .html file
+		ptime_py : python datetime
+		title or docid (optional)
+		digest (optional)
+		"""
 		self.docid=S(item['docid'])
 		self.src_url = discard_url_params(S(item['link']))
 		self.title=S(item.get('title',self.docid))
@@ -436,7 +446,7 @@ class Article163(Article):
 		# dig out the article
 		m=re.search(r'<article[^>]*>(.*)</article>', html, re.I|re.S)
 		if m is None:
-			print('failed to get article', self.docid)
+			print('failed to get article body', self.docid)
 			return None
 
 		art_tag=m.group(0)[:100]
@@ -447,12 +457,31 @@ class Article163(Article):
 
 		body=m.group(1)
 		return body
-	
+
 class ArticleCCTV(Article):
+
 	def setup(self, item):
-		pass
+		self.docid=S(item['id'])
+		self.src_url = discard_url_params(S(item['url']))
+		self.title=S(item.get('title',self.docid))
+		self.desc=S(item.get('brief','no description'))
+		self.origin=S(u'news.cctv.com')
+
 	def scan_article_content(self, html):
-		pass
+		assert False #TODO
+		m0=re.search('r<!--repaste\.title\.begin-->(.*?)<!--repaste\.title\.end-->', html, re.I|re.S)
+		m=re.search(r'<!--repaste\.body\.begin-->(.*?)<!--repaste\.body\.end-->', html, re.I|re.S)
+		if m is None:
+			print('failed to get article body')
+			return None
+		body=''
+		if m0 is not None:
+			body+='<h1>'+m0.group(1)+'</h1>'
+		body+=m.group(1)
+		return body
+
+#	def filter_tag(self, x):
+# todo
 
 class IndexPage:
 	def __init__(self, seq_id, basename):
@@ -697,6 +726,64 @@ class Indexer:
 	def article_back_ref(self):
 		return '../' + self.page.sib_url
 
+def get_mainpage(url, cache_prefix, args):
+	if len(args.mainpage)>0:
+		# src file specified on command line
+		src_path=args.mainpage[0]
+		src_bn=os.path.basename(src_path)
+		print('Using', src_path, 'as the front page')
+		if src_bn.startswith(cache_prefix):
+			opn=open
+			if src_bn.endswith('.gz'):
+				opn=gzip.open
+			with opn(src_path,'rb') as f:
+				frontpage=f.read()
+		else:
+			# some other news source deals with the file
+			return []
+	else:
+		p=the_art_dir(time.strftime( \
+			cache_prefix + '-%Y-%m-%d-%H.html'))
+		frontpage = cached_gz(p, lambda u=url:GET(u))
+	assert type(frontpage) is str
+	return frontpage
+
+def parse_date_ymdhms(x):
+	t = x.encode('utf-8') if type(x) is unicode else str(x)
+	return time.strptime(t,'%Y-%m-%d %H:%M:%S')
+
+def pull_163(args):
+	url='https://3g.163.com/touch/news/'
+	prefix='news_163'
+	frontpage=get_mainpage(url, prefix, args)
+	# Fetch single-line json array from front page
+	# difference between topicData and channelData?
+	#topicData = scanJ(frontpage, r'^\s*var\s+topicData\s*=\s*({.*});$')
+	chanData = scanJ(frontpage, r'^\s*var\s+channelData\s*=\s*({.*});$')
+	items=[]
+	items+=chanData['listdata']['data']
+	for xx in chanData['topdata']['data']:
+		assert type(xx) is dict
+		assert 'ptime' in xx
+		items+=[xx]
+	for it in items:
+		it['article_class_py_'] = Article163
+		it['article_date_py_'] = parse_date_ymdhms(it['ptime'])
+
+	return items
+
+def pull_cctv(args):
+	url='http://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/news_1.jsonp'
+	prefix='news_cctv'
+	news_1=get_mainpage(url, prefix, args)
+	news_json=json.loads(news_1[5:-1], encoding='utf-8')
+	items=[]
+	for it in news_json['data']['list']:
+		it['article_class_py_'] = ArticleCCTV
+		it['article_date_py_'] = parse_date_ymdhms(it['focus_date'])
+		items += [it]
+	return items
+
 def main():
 
 	ap=argparse.ArgumentParser()
@@ -737,32 +824,15 @@ def main():
 		cfg['NICE']=False
 	
 	ET.register_namespace('','http://www.w3.org/1999/xhtml')
+	items = []
 
-	if len(args.mainpage)>0:
-		print('Using', args.mainpage[0], 'as the front page')
-		opn=open
-		if args.mainpage[0].endswith('.gz'):
-			opn=gzip.open
-		with opn(args.mainpage[0],'rb') as f:
-			frontpage=f.read()
-	else:
-		fp_url='https://3g.163.com/touch/news/'
-		fp_cache=the_art_dir(time.strftime('news_163-%Y-%m-%d-%H.html'))
-		frontpage = cached_gz(fp_cache, lambda u=fp_url:GET(u))
-	
-	# regex error: frontpage was accidentally .gz (mislabeled file extension)
+	if cfg['GET_163']:
+		print('Fetch 163...')
+		items += pull_163(args)
 
-	# Fetch single-line json array from front page
-	# difference between topicData and channelData?
-	#topicData = scanJ(frontpage, r'^\s*var\s+topicData\s*=\s*({.*});$')
-	chanData = scanJ(frontpage, r'^\s*var\s+channelData\s*=\s*({.*});$')
-	items=[]
-
-	items+=chanData['listdata']['data']
-
-	for xx in chanData['topdata']['data']:
-		assert type(xx) is dict
-		items+=[xx]
+	if cfg['GET_CCTV']:
+		print('Fetch CCTV...')
+		items += pull_cctv(args)
 
 	idx = Indexer()
 	sq = idx.sq
@@ -770,23 +840,26 @@ def main():
 	rebuild_index_only=\
 		cfg.get('REBUILD_HTML',False) \
 		and args.rebuild_index_only
+	
+	items = sorted(items,
+		key=lambda it: it['article_date_py_'])
 
+	print('Fetching articles... (%d)' % len(items))
 	for item in items:
 		assert type(item) is dict
-		if False:
-			print()
-			for z in 'ptime','title','digest','link','type','docid', 'category', 'channel':
-				print(z,item.get(z,None))
+		assert 'article_class_py_' in item
+		assert 'article_date_py_' in item
 
-		item['ptime_py_'] = time.strptime(item['ptime'],'%Y-%m-%d %H:%M:%S')
-		link=item['link']
+		cl_init=item['article_class_py_']
+		art=cl_init(item)
 
-		if check_ext(link, ('.html','.xhtml','.cgi','.php')):
-			art=Article163(item)
+		print(art.src_url)
+
+		if check_ext(art.src_url, ('.shtml', '.html','.xhtml','.cgi','.php')):
 			if should_terminate():
 				break
 			if not art.exists() and not art.is_poisoned():
-				print('Process:',link)
+				print('Process:',art.src_url)
 				art.fetch()
 				art.back_url = idx.article_back_ref()
 				if rebuild_index_only or art.write_html():
