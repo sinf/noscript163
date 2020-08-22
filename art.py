@@ -577,6 +577,12 @@ class Indexer:
 				self.page.prev=IndexPage(rows[1][2])
 				self.page.prev.next=self.page
 	
+	def last_full_page(self):
+		p=self.page
+		if p.prev is not None and p.count() < cfg['INDEX_BATCH']:
+			p=p.prev
+		return p
+	
 	def new_page(self):
 		i=self.next_id
 		p=str(i)+'.xhtml'
