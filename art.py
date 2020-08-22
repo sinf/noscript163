@@ -179,6 +179,13 @@ def have_html_files(path):
 	return (not cfg.get('REBUILD_HTML',False)) \
 		and ((not cfg.get('SAVE_HTML',True)) or os.path.exists(path)) \
 		and ((not cfg.get('SAVE_HTML_GZ',True)) or os.path.exists(path+'.gz'))
+	
+def shell_cmd(cmd):
+	if cfg['NICE']:
+		cmd=cfg['CPULIMIT']+' -q -l 5 -- '+cmd
+	print(cmd)
+	os.system(cmd)
+	be_nice()
 
 class Article:
 
@@ -229,32 +236,32 @@ class Article:
 			print('rejecting javascript img hack:', src)
 			return None
 		bn=os.path.basename(src)
+		no_suf=re.sub(r'(\..{1,5})$','',bn)
 		if not check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
 			print('rejecting image because of unknown suffix:', bn[-4:])
 			return None
 		org=os.path.join(self.dstdir, 'img0', bn)
-		bn2=re.sub(r'(\..{1,4})$','.webp',bn)
-		dst=os.path.join(self.dstdir, 'img', bn2)
-		url=os.path.join('img', bn2)
-		if not os.path.exists(dst) or cfg.get('REBUILD_IMAGES',False):
+		dst=os.path.join(self.dstdir, 'img', no_suf+'.webp')
+		url=os.path.join('img', no_suf+'.webp')
+		rebuild=cfg.get('REBUILD_IMAGES',False)
+		if not os.path.exists(dst) or rebuild:
 			make_dir(os.path.dirname(dst))
 			try:
 				cached(org, lambda: GET(src))
 			except:
 				print('FAILED to get image:', src)
 				return None
-			cmd=cfg['CONVERT']+' '+org+" -fuzz 1% -trim +repage -resize '500000@>' -quality 30 "+dst
-			if cfg['NICE']:
-				cmd=cfg['CPULIMIT']+' -q -l 5 -- '+cmd
-			print(cmd)
-			os.system(cmd)
-			be_nice()
+			shell_cmd(cfg['CONVERT']+' '+org+" -fuzz 1% -trim +repage -resize '500000@>' -quality 30 "+dst)
 			if not cfg['SAVE_IMG_SRC']:
 				try_remove(org)
 			if cfg['SAVE_IMG_INFO']:
 				with open(org+'.txt','w') as f:
 					f.write(src+'\n')
 			print('Write image', dst)
+		fallback=os.path.join(self.dstdir, 'img', no_suf+'.jpg')
+		if os.path.exists(dst) and (rebuild or not os.path.exists(fallback)):
+			# make a fallback JPG. save CPU: downscale the already downscaled image
+			shell_cmd(cfg['CONVERT']+' '+dst+" -fuzz 1% -trim +repage -resize '100000@>' -quality 30 "+fallback)
 		return url
 	
 	def filter_img163(self, attr, cl):
@@ -271,14 +278,10 @@ class Article:
 		url=self.shrink_img(src_url)
 		if url is None:
 			return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
-		ds=' src="'+url+'"'
 		alt=re.search(r'alt="([^"]+)"', attr)
 		alt='' if alt is None else ' '+alt.group(0)
-		#return str('<img' + cl + alt + ds + '/>')
-		return str('\n<object' + cl + ' type="image/webp"' + ' data="'+url \
-			+ '"><div class="unsupp">Your browser does not support this image format. ' \
-			+ '<a href="'+src_url+'">Link to original image</a></div>'
-			+ alt + '</object>\n')
+		return str('\n<object' + cl + ' type="image/webp"' + ' data="' + url \
+			+ '"><img' + cl + alt + ' src="' + url[:-4] + 'jpg"/></object>\n')
 	
 	def filter_a163(self, attr, cl):
 		url=''
