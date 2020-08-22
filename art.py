@@ -498,6 +498,9 @@ class IndexPage:
 	def count(self):
 		return len(self.article_container().getchildren())
 	
+	def is_full(self):
+		return self.count() >= cfg['INDEX_BATCH']
+	
 	def _sort_keyfunc(self, x):
 		d=self.find2(x, ".//span[@class='date']")
 		return time.strptime(d.text, '%Y-%m-%d %H:%M:%S')
@@ -541,7 +544,7 @@ class IndexPage:
 			print(self.filepath+': previous page not set')
 		else:
 			print(self.filepath+': previous page = ', self.prev.filepath)
-			self.prev.set_ref('next',self.sib_url)
+			self.prev.set_ref('next',self.sib_url if self.is_full() else '#')
 			self.set_ref('prev',self.prev.sib_url)
 			if r>0:
 				self.prev.save(r-1)
@@ -579,7 +582,7 @@ class Indexer:
 	
 	def last_full_page(self):
 		p=self.page
-		if p.prev is not None and p.count() < cfg['INDEX_BATCH']:
+		if p.prev is not None and not p.is_full():
 			p=p.prev
 		return p
 	
@@ -717,8 +720,9 @@ def main():
 	idx.done()
 
 	p=the_art_dir(cfg['LAST_PAGE_ALIAS'])
-	try_link(idx.page.filepath, p)
-	try_link(idx.page.filepath+'.gz', p+'.gz')
+	last=idx.last_full_page()
+	try_link(last.filepath, p)
+	try_link(last.filepath+'.gz', p+'.gz')
 	
 	T_END=time.time()
 	T_TOT=T_END-T_START
