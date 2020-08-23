@@ -284,7 +284,8 @@ class Article:
 			return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
 		alt=re.search(r'alt="([^"]+)"', attr)
 		alt='' if alt is None else ' '+alt.group(0)
-		return str('\n<object' + cl + ' type="image/webp"' + ' data="' + url \
+		return str('\n<!-- source: '+src_url+'-->\n'\
+			+ '<object' + cl + ' type="image/webp"' + ' data="' + url \
 			+ '"><img' + cl + alt + ' src="' + url[:-4] + 'jpg"/></object>\n')
 	
 	def filter_a163(self, attr, cl):
@@ -346,6 +347,7 @@ class Article:
 	
 	def mark_poisoned(self):
 		open(self.dstpath+'.skip','w').close()
+		print('flag as poisoned:', self.dstpath)
 	
 	def write_html(self):
 		html=self.src_html
@@ -384,8 +386,10 @@ class Article:
 			body, flags=re.M|re.S)
 
 		# cheap attempt at minifying it
+		# remove useless links
 		body=re.sub('<a>(.*?)</a>',lambda x: x.group(1), body, flags=re.S)
-		body=re.sub('<span>\s*</span>','', body, flags=re.M)
+		# empty tags like <span></span> ...
+		body=re.sub('<([a-zA-Z]+)>\s*</\1>','', body, flags=re.M|re.S|re.U)
 		body=re.sub('[ \t]+',' ',body)
 		body=re.sub(' *\n+ *','\n',body,flags=re.M)
 		body=re.sub(' *\n+ *','\n',body,flags=re.M)
@@ -468,16 +472,23 @@ class ArticleCCTV(Article):
 		self.origin=S(u'news.cctv.com')
 
 	def scan_article_content(self, html):
-		assert False #TODO
-		m0=re.search('r<!--repaste\.title\.begin-->(.*?)<!--repaste\.title\.end-->', html, re.I|re.S)
-		m=re.search(r'<!--repaste\.body\.begin-->(.*?)<!--repaste\.body\.end-->', html, re.I|re.S)
-		if m is None:
+
+		# body (some fake articles don't have it)
+		b=re.search(r'<!--repaste\.body\.begin-->(.*?)<!--repaste\.body\.end-->', html, re.I|re.S)
+		if b is None:
 			print('failed to get article body')
+			self.mark_poisoned()
 			return None
+
+		# optional title
+		t=re.search('r<!--repaste\.title\.begin-->(.*?)<!--repaste\.title\.end-->', html, re.I|re.S)
+		if t is None:
+			t=re.search('"og:title" content="([^"]+)"', html, re.I|re.S)
+
 		body=''
-		if m0 is not None:
-			body+='<h1>'+m0.group(1)+'</h1>'
-		body+=m.group(1)
+		if t is not None:
+			body+='<h1>'+t.group(1)+'</h1>'
+		body+=b.group(1)
 		return body
 
 #	def filter_tag(self, x):
@@ -787,12 +798,13 @@ def pull_cctv(args):
 def main():
 
 	ap=argparse.ArgumentParser()
-	ap.add_argument('-m', '--mainpage', nargs=1, default=[])
-	ap.add_argument('-f', '--fuck-it', action='store_true')
-	ap.add_argument('-c', '--conf', nargs=1, default=[None])
-	ap.add_argument('-r', '--rebuild-html', action='store_true')
-	ap.add_argument('-R', '--rebuild-images', action='store_true')
-	ap.add_argument('-I', '--rebuild-index-only', action='store_true')
+	ap.add_argument('-m', '--mainpage', nargs=1, default=[], help="Specify filename of main page (.html or .html.gz)")
+	ap.add_argument('-a', '--articles', nargs='*', default=[], help="Only consider article URLs that end with any string listed here")
+	ap.add_argument('-f', '--fuck-it', action='store_true',help="Disable CPU saving (for testing)")
+	ap.add_argument('-c', '--conf', nargs=1, default=[None],help="Load JSON config from this filepath")
+	ap.add_argument('-r', '--rebuild-html', action='store_true',help="Rebuild HTML files")
+	ap.add_argument('-R', '--rebuild-images', action='store_true',help="Rebuild HTML and image files")
+	ap.add_argument('-I', '--rebuild-index-only', action='store_true',help="Skip rebuilding articles")
 	args=ap.parse_args()
 
 	print('\nNews article archiver & reformatter started')
@@ -840,6 +852,9 @@ def main():
 	rebuild_index_only=\
 		cfg.get('REBUILD_HTML',False) \
 		and args.rebuild_index_only
+
+	revisit_html=\
+		args.rebuild_html or args.rebuild_images
 	
 	items = sorted(items,
 		key=lambda it: it['article_date_py_'])
@@ -853,18 +868,35 @@ def main():
 		cl_init=item['article_class_py_']
 		art=cl_init(item)
 
+		if len(args.articles)>0:
+			tmp=discard_url_params(art.src_url).lower()
+			ok=False
+			for a in args.articles:
+				if tmp.endswith(a.lower()):
+					ok=True
+					break
+			if not ok:
+				continue
+
 		print(art.src_url)
 
 		if check_ext(art.src_url, ('.shtml', '.html','.xhtml','.cgi','.php')):
 			if should_terminate():
 				break
-			if not art.exists() and not art.is_poisoned():
+			if (revisit_html or not art.exists()) \
+			and not art.is_poisoned():
 				print('Process:',art.src_url)
-				art.fetch()
-				art.back_url = idx.article_back_ref()
-				if rebuild_index_only or art.write_html():
-					idx.put(art)
-				be_nice()
+				while True:
+					try:
+						art.fetch()
+					except:
+						print('Failed to GET')
+						break
+					art.back_url = idx.article_back_ref()
+					if rebuild_index_only or art.write_html():
+						idx.put(art)
+					be_nice()
+					break
 
 		if should_terminate():
 			break

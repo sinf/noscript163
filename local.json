@@ -2,12 +2,14 @@
 	"WEB_ROOT":".",
 	"ARTICLES":"zh-news",
 	"BACK":"/main.html",
-	"INDEX_BATCH":3,
-	"SAVE_IMG_SRC":false,
+	"INDEX_BATCH":8,
+	"SAVE_IMG_SRC":true,
 	"SAVE_HTML":true,
 	"SAVE_HTML_GZ":true,
 	"SAVE_IMG_INFO":true,
 	"PID_FILE":"/tmp/news-aggregator.pid",
+	"GET_163":true,
+	"GET_CCTV":true,
 	"NICE":false
 }
 
