@@ -387,10 +387,11 @@ class Article:
 
 		# safety
 		noscript='<!--SCRIPT REMOVED-->'
-		body=re.sub(r'<script>.*?</script>',noscript,body,flags=re.S|re.U|re.M)
-		body=re.sub(r'<\s*script.*?>.*?</\s*script\s*>',noscript,body,flags=re.S|re.U|re.M)
-		body=re.sub(r'<\s*script.*?/>',noscript,body,flags=re.S|re.U|re.M)
-		body=re.sub(r'<\s*script.*',noscript,body,flags=re.S|re.U|re.M)
+		f=re.S|re.U|re.M|re.I
+		body=re.sub(r'<script>.*?</script>',noscript,body,flags=f)
+		body=re.sub(r'<\s*script.*?>.*?</\s*script\s*>',noscript,body,flags=f)
+		body=re.sub(r'<\s*script.*?/>',noscript,body,flags=f)
+		body=re.sub(r'<\s*script.*',noscript,body,flags=f)
 
 		# remove Notice: the content..NetEase..blahblah
 		body=re.sub(r'<p>特别声明.*?</p>','',body,flags=re.S)
