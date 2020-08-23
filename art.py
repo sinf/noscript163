@@ -105,7 +105,7 @@ def try_link(x,y):
 
 def be_nice():
 	if cfg['NICE']:
-		time.sleep(10)
+		time.sleep(5)
 
 def the_dir(path):
 	wr=os.environ.get('WEB_ROOT',cfg['WEB_ROOT'])
@@ -185,7 +185,7 @@ def have_html_files(path):
 	
 def shell_cmd(cmd):
 	if cfg['NICE']:
-		cmd=cfg['CPULIMIT']+' -q -l 5 -- '+cmd
+		cmd=cfg['CPULIMIT']+' -q -l 15 -- '+cmd
 	print(cmd)
 	os.system(cmd)
 	be_nice()
