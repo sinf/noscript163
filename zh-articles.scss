@@ -119,6 +119,7 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 	padding: 0.1em;
 }
 
+// toplevel master index
 #mainIdx {
 	padding: 0.5em;
 	text-align: center;
@@ -133,6 +134,10 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 		text-align: left;
 		display: inline-block;
 		margin: 0.5em 1em 0.5em 0;
+		a {
+			display: inline-block;
+			margin: 1em;
+		}
 	}
 	.introd div:lang(en) {
 		font-size: 90.91%;

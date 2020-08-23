@@ -1,13 +1,40 @@
 #!/usr/bin/env python2.7
 #-*- encoding: utf-8 -*-
 from __future__ import print_function
+"""
+Why 2.7? The web hosting service I use has it, that's why. Unicode problems ahead.
 
 # Chinese article aggregator script
-# generates a tree of documents and images
 
+In the server's crontab I have put the command:
+	0 0,4,8,12,16,20 * * * /path/to/art.py -c /path/to/config.json 2>&1 | tee -a /path/to/log.log
+And so this script will just keep appending more articles each day.
+It generates a tree of documents and images in zh-news/
+All command line options are meant for testing
+
+Relevant files
+WEB_ROOT/ARTICLES/MASTER_INDEX        master index. links to index pages
+WEB_ROOT/ARTICLES/[NUMBER].xhtml      index pages. links to articles
+WEB_ROOT/ARTICLES/YYYY-MM/*.html      articles
+WEB_ROOT/ARTICLES/YYYY-MM/img/*.webp  articles' images
+WEB_ROOT/ARTICLES/zh-articles.css     one style for all pages
+WEB_ROOT/ARTICLES/favicon.gif
+WEB_ROOT/ARTICLES/zh-news.db          sqlite3 for searching stuff
+
+Temporary files
+WEB_ROOT/ARTICLES/YYYY-MM/img0/*      articles' original large images
+*.in , *.in.gz                        original articles pages
+*.skip
+
+"""
+
+# This dict is appended from -c FILEPATH.json specified on command line
 cfg={
 # local filesystem path where things are stored
 	'WEB_ROOT':'.',
+
+# relative to WEB_ROOT
+	'ARTICLES':'zh-news',
 
 # filename (under WEB_ROOT/ARTICLES/)
 # of a hardlink to the most recent index page
@@ -15,12 +42,6 @@ cfg={
 
 # contains links to index pages
 	'MASTER_INDEX':'main.xhtml',
-
-#	relative to WEB_ROOT
-# index files are called WEB_ROOT/ARTICLES/idx%d.html
-# and articles:
-# WEB_ROOT/ARTICLES/YYYY-MM/(*.xhtml,*.webp)
-	'ARTICLES':'zh-news',
 
 # how many articles per index page
 	'INDEX_BATCH':20,
@@ -682,7 +703,9 @@ class Indexer:
 <div lang="zh">
 <h1>介绍</h1>
 <p>为了提高我的中文，我会偶尔看看中国的新闻网站。可是你们网站太慢了。装满了那么多javascript垃圾我手机的电池要着火了！服务器遥远，有广告，有跟踪曲奇，有长城，https有毛病。为了解决这些问题，我编程了这个服务。它每天几次下载新闻，移除script，把单纯的文章写成简单不变的html。它把图片数据微缩到5%的大小。在欧洲看我的网页应该比原来的网页快很多。目前只有两个新闻来源，163.com和CCTV。你如果觉得这服务有用，可以给我建议接下来加什么来源。</p>
-</div></div>
+</div>
+<a href="https://github.com/sinf/noscript163">Github project page</a>
+</div>
 '''.encode('utf-8'))
 		f.write('<div class="all"><h1>Archive</h1>\n')
 		s = self.sqc.execute( \
