@@ -76,10 +76,12 @@ cfg={
 	'GET_CCTV':True,
 }
 
+import traceback
 import urllib2
 import re
 import json
 import os
+import sys
 import time
 import sqlite3
 import xml.etree.ElementTree as ET
@@ -149,7 +151,7 @@ def cached_gz(path, func):
 	return cached(path, func, gzip.open)
 
 def scanJ(html, r):
-	m=re.search(r, html, re.M|re.I|re.U)
+	m=re.search(r, html, flags=re.M|re.I|re.U)
 	if m is None:
 		raise Exception('failed to parse main page, regex'+r)
 	return json.loads(m.group(1))
@@ -390,6 +392,7 @@ class Article:
 		body=re.sub('<a>(.*?)</a>',lambda x: x.group(1), body, flags=re.S)
 		# empty tags like <span></span> ...
 		body=re.sub('<([a-zA-Z]+)>\s*</\1>','', body, flags=re.M|re.S|re.U)
+		#body=re.sub('\xe3\x80\x80',' ',html)
 		body=re.sub('[ \t]+',' ',body)
 		body=re.sub(' *\n+ *','\n',body,flags=re.M)
 		body=re.sub(' *\n+ *','\n',body,flags=re.M)
@@ -415,18 +418,23 @@ class Article:
 		h+=self.make_back_url()
 		return h
 	
-	def make_back_url(self):
+	def make_back_url(self, org=True):
 		if not self.back_url:
 			return ''
 		h='<nav>'
 		h+='<a class="zh-ret" href="'+self.back_url+'">'
-		h+='Return to index'
+		h+=u'Return 返回'.encode('utf-8')
 		h+='</a>\n'
+		if org:
+			xx=u'Source 原文'.encode('utf-8')
+			h+='<a href="'+self.src_url+'">'+xx+'</a>\n'
 		h+='</nav>'
 		return h
 
 	def footer(self):
-		return self.make_back_url()+'</body>\n</html>\n'
+		s=self.make_back_url(org=True)
+		s+='</body>\n</html>\n'
+		return s
 
 class Article163(Article):
 
@@ -448,7 +456,7 @@ class Article163(Article):
 		""" Works for 163 """
 
 		# dig out the article
-		m=re.search(r'<article[^>]*>(.*)</article>', html, re.I|re.S)
+		m=re.search(r'<article[^>]*>(.*)</article>', html, flags=re.I|re.S)
 		if m is None:
 			print('failed to get article body', self.docid)
 			return None
@@ -474,21 +482,26 @@ class ArticleCCTV(Article):
 	def scan_article_content(self, html):
 
 		# body (some fake articles don't have it)
-		b=re.search(r'<!--repaste\.body\.begin-->(.*?)<!--repaste\.body\.end-->', html, re.I|re.S)
+		b=re.search(r'<!--repaste\.body\.begin-->(.*?)<!--repaste\.body\.end-->', html, flags=re.I|re.S)
 		if b is None:
 			print('failed to get article body')
 			self.mark_poisoned()
 			return None
 
 		# optional title
-		t=re.search('r<!--repaste\.title\.begin-->(.*?)<!--repaste\.title\.end-->', html, re.I|re.S)
+		t=re.search('r<!--repaste\.title\.begin-->(.*?)<!--repaste\.title\.end-->', html, flags=re.I|re.S)
 		if t is None:
-			t=re.search('"og:title" content="([^"]+)"', html, re.I|re.S)
+			t=re.search('"og:title" content="([^"]+)"', html, flags=re.I|re.S|re.M)
+
+		# optional editor
+		z=re.search('r<div class="zebian">(.*?)</div>', html, flags=re.I|re.S|re.M)
 
 		body=''
 		if t is not None:
 			body+='<h1>'+t.group(1)+'</h1>'
 		body+=b.group(1)
+		if z is not None:
+			body+='<p class="editor">'+z.group(1)+'</p>'
 		return body
 
 #	def filter_tag(self, x):
@@ -664,11 +677,11 @@ class Indexer:
 +cfg['LAST_PAGE_ALIAS']+'">&gt;&gt;&gt; Enter &lt;&lt;&lt;</a><br/>\n')
 		f.write(u'''<div class="introd"><div lang="en">
 <h1>About</h1>
-<p>To improve my chinese I read chinese news. But news apps and websites suck! They drain battery with ads, have long latency and random junk, track the user and have broken HTTPS. This service solves those problems. It downloads news each day and reformats them into static HTML without javascript. Images are compressed to 5% of the original size. So far it only supports one site, 163.com. I will add more later.</p>
+<p>To improve my chinese I read chinese news. But news apps and websites suck! They drain battery with ads, have long latency and random junk, track the user and have broken HTTPS. This service solves those problems. It downloads news each day and reformats them into static HTML without javascript. Images are compressed to 5% of the original size. So far it only supports two sites, 163.com and CCTV. I will add more later.</p>
 </div>
 <div lang="zh">
 <h1>介绍</h1>
-<p>为了提高我的中文，我会偶尔看看中国的新闻网站。可是你们网站太慢了。装满了那么多javascript垃圾我手机的电池要着火了！服务器遥远，有广告，有跟踪曲奇，有长城，https有毛病。为了解决这些问题，我编程了这个服务。它每天几次下载新闻，移除script垃圾，把单纯的文章写成简单不变的html。它把图片数据微缩到5%的大小。在欧洲看我的网页应该比原来的网页快很多。目前只有一个新闻来源，163.com。你如果觉得这服务有用，可以给我建议接下来加什么来源。</p>
+<p>为了提高我的中文，我会偶尔看看中国的新闻网站。可是你们网站太慢了。装满了那么多javascript垃圾我手机的电池要着火了！服务器遥远，有广告，有跟踪曲奇，有长城，https有毛病。为了解决这些问题，我编程了这个服务。它每天几次下载新闻，移除script，把单纯的文章写成简单不变的html。它把图片数据微缩到5%的大小。在欧洲看我的网页应该比原来的网页快很多。目前只有两个新闻来源，163.com和CCTV。你如果觉得这服务有用，可以给我建议接下来加什么来源。</p>
 </div></div>
 '''.encode('utf-8'))
 		f.write('<div class="all"><h1>Archive</h1>\n')
@@ -751,7 +764,7 @@ def get_mainpage(url, cache_prefix, args):
 				frontpage=f.read()
 		else:
 			# some other news source deals with the file
-			return []
+			return None
 	else:
 		p=the_art_dir(time.strftime( \
 			cache_prefix + '-%Y-%m-%d-%H.html'))
@@ -767,6 +780,8 @@ def pull_163(args):
 	url='https://3g.163.com/touch/news/'
 	prefix='news_163'
 	frontpage=get_mainpage(url, prefix, args)
+	if frontpage is None:
+		return []
 	# Fetch single-line json array from front page
 	# difference between topicData and channelData?
 	#topicData = scanJ(frontpage, r'^\s*var\s+topicData\s*=\s*({.*});$')
@@ -787,7 +802,16 @@ def pull_cctv(args):
 	url='http://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/news_1.jsonp'
 	prefix='news_cctv'
 	news_1=get_mainpage(url, prefix, args)
-	news_json=json.loads(news_1[5:-1], encoding='utf-8')
+	if news_1 is None:
+		return []
+	try:
+		news_json=json.loads(news_1[5:-1], encoding='utf-8')
+	except Exception, err:
+		print('Failed to parse CCTV json')
+		print('json', news_1[:10], '...', news_1[-10:])
+		print('json (inner)', news_1[5:10], '...', news_1[-10:-1])
+		traceback.print_exc()
+		sys.exit(1)
 	items=[]
 	for it in news_json['data']['list']:
 		it['article_class_py_'] = ArticleCCTV

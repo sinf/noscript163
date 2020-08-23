@@ -95,14 +95,15 @@ body>.main-content, article {
 		height: auto;
 		clear: both;
 	}
-	.otitle_editor {
-		margin-top: 0.75em;
-		color: lightgray;
-		.otitle {
-			// original title
-		}
-		.editor {
-		}
+}
+
+.otitle_editor, p.editor {
+	margin-top: 0.75em;
+	color: lightgray;
+	.otitle {
+		// original title
+	}
+	.editor {
 	}
 }
 
