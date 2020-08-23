@@ -1,4 +1,13 @@
 
+$c: lightblue;
+$c-url: #91BFF2;
+$c-text: white;
+$c-text-whatevs: lightgray;
+//$c-bg: #1C1F26;
+$c-bg: #282A40;
+$c-lines: gray;
+$c-enter-bg: #161A26;
+
 * {
 	box-sizing: border-box;
 	font-family: Arial;
@@ -8,11 +17,21 @@
 
 html {
 	font-size: 1.1em;
-	background-color: black;
+	background-color: $c-bg;
+/*
 	background-image: url(bgsym.jpg);
 	background-size: 1in;
 	background-repeat: repeat;
-	color: white;
+*/
+	color: $c-text;
+	text-shadow: 0.1em 0.1em 0.3em black;
+
+background: rgb(53,60,89);
+background: linear-gradient(180deg, rgba(53,60,89,1) 0%, rgba(76,84,102,1) 100%);
+
+	background-size: 100%;
+	background-repeat: no-repeat;
+	background-attachment: fixed;
 }
 
 nav {
@@ -27,9 +46,9 @@ nav {
 	a, a:visited {
 		margin: 0.5em auto 0.5em auto;
 		display: inline-block;
-		color: lightblue;
+		color: lighten($c-url,20%);
 	}
-	border-color: gray;
+	border-color: $c-lines;
 	border-width: 1px;
 	border-bottom-style: solid;
 	padding: 0 0 0.3em 0.5em;
@@ -38,8 +57,8 @@ nav {
 
 
 a, a:visited {
-	color: orange;
-	border: 1px dotted lightblue;
+	color: $c;
+	border: 1px dotted $c-url;
 }
 
 *:lang(zh) {
@@ -51,7 +70,7 @@ a, a:visited {
 .article-ref {
 	display: block;
 	text-align: left;
-	border-bottom: 2px dotted orange;
+	border-bottom: 2px dotted $c;
 	padding-bottom: 0.5em;
 	margin-bottom: 1em;
 	a.local {
@@ -63,7 +82,7 @@ a, a:visited {
 	.title {
 	}
 	.desc {
-		color: lighten(orange,50%);
+		color: lighten($c,50%);
 		text-decoration: none;
 		border: none;
 	}
@@ -74,9 +93,9 @@ a, a:visited {
 // reformatted articles
 body>.main-content, article {
 	margin: 0 0.5em 0 0.5em;
-	color: lighten(orange,50%);
+	color: lighten($c,50%);
 	.title {
-		color: orange;
+		color: $c;
 	}
 	strong, b {
 		font-style: bold;
@@ -94,12 +113,15 @@ body>.main-content, article {
 		width: 20em;
 		height: auto;
 		clear: both;
+		border: 0.2em solid $c-text;
+		border-radius: 0.2em;
+		margin: 0.5em;
 	}
 }
 
 .otitle_editor, p.editor {
 	margin-top: 0.75em;
-	color: lightgray;
+	color: $c-text-whatevs;
 	.otitle {
 		// original title
 	}
@@ -110,13 +132,6 @@ body>.main-content, article {
 // hack to hide some weird extra title
 div.article-content + h2, .editor + h2, .otitle + h2 {
 	display: none;
-}
-
-.unsupp {
-	color: pink;
-	margin: 0.5em 0 0.5em 0;
-	border: 1px dotted pink;
-	padding: 0.1em;
 }
 
 // toplevel master index
@@ -142,14 +157,16 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 	.introd div:lang(en) {
 		font-size: 90.91%;
 	}
+
+// large Enter button
 	.recent {
 		display: inline-block;
 		margin: 1rem 0 0.5rem 0;
 		padding: .8rem .2rem .8rem .2rem;
-		background-color: #4D0900;
+		background-color: $c-enter-bg;
 		font-size: 150%;
 		text-shadow: 0.1em 0.1em 0.3em black;
-		border: none;
+		border: 0.1em solid $c-text;
 		border-radius: 0.75em;
 		width: 20em;
 	}
@@ -159,7 +176,7 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 			display: inline-block;
 			float: left;
 			padding: 0.5em;
-			border: 1px dashed gray;
+			border: 1px dashed $c-lines;
 		}
 	}
 }

@@ -563,8 +563,8 @@ class IndexPage:
 	
 	def nav(self):
 		return '''<nav><ul>
-<li><a href="'''+cfg['MASTER_INDEX']+'''">Index</a></li>
-<li><a href="'''+cfg['LAST_PAGE_ALIAS']+'''">Most recent</a></li>
+<li><a href="./'''+cfg['MASTER_INDEX']+'''">Index</a></li>
+<li><a href="./'''+cfg['LAST_PAGE_ALIAS']+'''">Most recent</a></li>
 <li><a class="prev" href="#">Previous page</a></li>
 <li><a class="next" href="#">Next page</a></li>
 </ul></nav>'''
