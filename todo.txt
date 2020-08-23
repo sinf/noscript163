@@ -1,30 +1,9 @@
 
-fix script tag not removed a href bug
-
-add option to regenerate one specific .html
+fix regex (some weird broken html a href tags)
 
 add more source sites
 
-filter bad news out
-
-cctv
-fetch json of new articles
-	http://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/news_1.jsonp
-fetch article
-	https://news.cctv.com/2020/08/21/ARTIcpAQTlZJ2hh3ulNB96cD200821.shtml
-Parse this:
-	<div class="content_18313">
-		<nav class="nav_daohang">
-			...
-		</nav>
-		<div id="title_area" class="title_area">
-			<h1> ... </h1>
-			..
-		</div>
-		.. ??? ...
-		<div class="content-area">
-			actual <p> tags here
-		</div>
-	</div>
-
+filter the news
+- max N articles/day
+- enforce variety (drop multiple similar articles)
 

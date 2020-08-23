@@ -877,7 +877,7 @@ def main():
 			del cfg['PID_FILE']
 	
 	os.nice(19) # be nice
-	os.environ['PATH'] = '/home4/wlmrnkbl/bin:' + os.environ['PATH']
+	os.environ['PATH'] = cfg.get('PATH_PREPEND','') + os.environ['PATH']
 
 	if args.fuck_it:
 		cfg['NICE']=False
