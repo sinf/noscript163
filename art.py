@@ -455,7 +455,7 @@ class Article:
 		body=re.sub('<a>(.*?)</a>',lambda x: x.group(1), body, flags=re.S)
 		# empty tags like <span></span> ...
 		body=re.sub('<([a-zA-Z]+)>\s*</\1>','', body, flags=re.M|re.S|re.U)
-		#body=re.sub('\xe3\x80\x80',' ',html)
+		body=body.replace('\xe3\x80\x80',' ')
 		body=re.sub('[ \t]+',' ',body)
 		body=re.sub(' *\n+ *','\n',body,flags=re.M)
 		body=re.sub(' *\n+ *','\n',body,flags=re.M)

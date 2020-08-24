@@ -122,6 +122,10 @@ body>.main-content, article {
 		border-radius: 0.2em;
 		margin: 0.5em;
 	}
+	p {
+		display: block;
+		margin: 0 0 0.5em 0;
+	}
 }
 
 .otitle_editor, p.editor, p.show_author {
