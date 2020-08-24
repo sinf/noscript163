@@ -98,9 +98,13 @@ cfg={
 
 	'GET_163':True,
 	'GET_CCTV':True,
+	'GET_SINA':True,
 
 # Upper limit how many articles to download from one source in 1h (or however often this script is called)
 	'MAX_DL':50,
+
+# don't want to get altered content or denied so we're lying about this
+	'USER_AGENT':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36',
 }
 
 import traceback
@@ -148,12 +152,22 @@ def the_art_dir(path):
 
 def GET(url):
 	print('GET', url)
-	agent='Mozilla/5.0 (Windows NT 6.1; Win64; x64)'
+	agent=cfg['USER_AGENT']
 	req=urllib2.Request(url,headers={'User-Agent':agent})
 	r = urllib2.urlopen(req)
 	html=r.read()
 	r.close()
 	return html
+
+def HEAD(url):
+	print('HEAD', url)
+	agent=cfg['USER_AGENT']
+	req=urllib2.Request(url,headers={'User-Agent':agent})
+	req.get_method = lambda: 'HEAD'
+	r = urllib2.urlopen(req)
+	nfo = r.info()
+	r.close()
+	return nfo
 
 def make_dir(d):
 	if len(d) and not os.path.isdir(d):
@@ -292,6 +306,7 @@ class Article:
 		assert type(self.desc) is str
 		assert type(self.origin) is str
 
+		assert type(item['article_date_py_']) is time.struct_time
 		self.date=item['article_date_py_']
 		self.bname=self.docid+'.html'
 		self.dir_ym = time.strftime('%Y-%m',self.date)
@@ -408,6 +423,9 @@ class Article:
 		if body is None:
 			return False
 
+		# some comments contain broken html so delete them first
+		body=re.sub(r'<!--(.*?)-->','',body,flags=re.S)
+
 		# safety
 		noscript='<!--SCRIPT REMOVED-->'
 		f=re.S|re.U|re.M|re.I
@@ -484,12 +502,6 @@ class Article:
 class Article163(Article):
 
 	def setup(self, item):
-		""" item needs to have
-		link : url to some .html file
-		ptime_py : python datetime
-		title or docid (optional)
-		digest (optional)
-		"""
 		self.docid=S(item['docid'])
 		self.src_url = discard_url_params(S(item['link']))
 		self.title=S(item.get('title',self.docid))
@@ -498,9 +510,6 @@ class Article163(Article):
 		self.origin=S(u'3g.163.com 手机网易网')
 	
 	def scan_article_content(self, html):
-		""" Works for 163 """
-
-		# dig out the article
 		m=re.search(r'<article[^>]*>(.*)</article>', html, flags=re.I|re.S)
 		if m is None:
 			print('failed to get article body', self.docid)
@@ -551,6 +560,27 @@ class ArticleCCTV(Article):
 
 #	def filter_tag(self, x):
 # todo
+
+class ArticleSina(Article):
+	def setup(self, item):
+		self.src_url = discard_url_params(S(item['link']))
+		self.docid=S(item['docid'])
+		self.title=S(item.get('title',self.docid))
+		self.desc=''
+		self.origin=S(u'news.sina.com.cn 新浪网')
+
+	def scan_article_content(self, html):
+		b=re.search(r'<div class="article" id="article">(.*?)</div>\s*<!-- 正文 end -->', html, flags=re.S|re.M|re.U)
+		if b is None:
+			print('failed to get article body')
+			self.mark_poisoned()
+			return None
+		t=re.search(r'<h1 class="main-title">([^<]+)</h1>', html)
+		code=''
+		if t is not None:
+			code+='<h1>'+t.group(1)+'</h1>\n'
+		code+=b.group(1)
+		return code
 
 class IndexPage:
 	def __init__(self, seq_id, basename):
@@ -868,6 +898,61 @@ def pull_cctv(args):
 		items += [it]
 	return items
 
+def pull_sina(args):
+	url='https://news.sina.com.cn/'
+	prefix='news_sina'
+	mainpage=get_mainpage(url, prefix, args)
+	if mainpage is None:
+		return []
+	p=re.search(r'<!-- 新闻中心要闻区 begin -->(.*?)<!-- 新闻中心要闻区 end -->', mainpage, flags=re.S|re.M)
+	if p is None:
+		return []
+	# only want few items and yaowen supposedly has the relevant ones
+	yaowen=p.group(1)
+	# no timestamps on the frontpage, must http HEAD. cache responses to head.db for quicker rebuild
+	sq = sqlite3.connect(the_art_dir('head.db'))
+	sqc = sq.cursor()
+	sqc.execute('CREATE TABLE IF NOT EXISTS head (url TEXT UNIQUE, date TEXT)')
+	items=[]
+	try:
+		for hl in re.findall( \
+	r'href="(https?://news.sina.[^"]+\.[xs]?html)"[^>]*>([^<]{3,300})<', \
+			yaowen, flags=re.S|re.M):
+			assert type(hl) is tuple
+			url=hl[0]
+			title=hl[1]
+			di=re.sub(r'.*/(.*)\.[a-zA-Z]+$',lambda x: x.group(1),url)
+			assert '/' not in di
+			assert '.' not in di
+			row=sqc.execute('SELECT date FROM head WHERE url = ?',(url,)).fetchone()
+			try:
+				if row is not None and len(row)>0:
+					d=row[0]
+				else:
+					d=HEAD(url)['Date']
+					sqc.execute('INSERT INTO head VALUES (?,?)',(url,d))
+					be_nice()
+				ts=time.strptime(d, '%a, %d %b %Y %H:%M:%S GMT')
+			except KeyboardInterrupt as e:
+				raise e
+			except:
+				traceback.print_exc()
+				print('Failed to query', url)
+				continue
+			items+=[{
+				'article_class_py_' : ArticleSina,
+				'article_date_py_' : ts,
+				'link' : url,
+				'title' : title,
+				'docid' : di,
+			}]
+			if len(items) >= 30:
+				break #shouldn't happen
+	finally:
+		sqc.close()
+		sq.commit()
+	return items
+
 def n_most_recent(items, n):
 	items = sorted(items, key=lambda it: it['article_date_py_'])
 	if n >= 0:
@@ -929,6 +1014,9 @@ def main():
 		if cfg['GET_CCTV']:
 			print('Fetch CCTV...')
 			items += n_most_recent(pull_cctv(args), n)
+		if cfg['GET_SINA']:
+			print('Fetch sina...')
+			items += n_most_recent(pull_sina(args), n)
 
 	idx = Indexer()
 	sq = idx.sq
