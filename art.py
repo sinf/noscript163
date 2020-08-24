@@ -98,6 +98,9 @@ cfg={
 
 	'GET_163':True,
 	'GET_CCTV':True,
+
+# Upper limit how many articles to download from one source in 1h (or however often this script is called)
+	'MAX_DL':50,
 }
 
 import traceback
@@ -216,6 +219,56 @@ def shell_cmd(cmd):
 	os.system(cmd)
 	be_nice()
 
+class ImgError(Exception):
+	pass
+
+class Img:
+	def __init__(self, dstdir, src):
+		if should_terminate():
+			raise ImportError('program kill switch')
+		if 'javascript:' in src:
+			raise ImgError('javascript img hack: '+src)
+		bn=os.path.basename(src)
+		no_suf=re.sub(r'(\..{1,5})$','',bn)
+		if not check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
+			raise ImgError('unknown suffix: '+bn[-4:])
+		self.path_org=os.path.join(dstdir, 'img0', bn)
+		self.path_webp=os.path.join(dstdir, 'img', no_suf+'.webp')
+		self.path_jpg=os.path.join(dstdir, 'img', no_suf+'.jpg')
+		self.url_src=src
+		self.url_webp='img/'+no_suf+'.webp'
+		self.url_jpg='img/'+no_suf+'.jpg'
+		rebuild=cfg.get('REBUILD_IMAGES',False)
+		if not os.path.exists(self.path_jpg) or rebuild:
+			make_dir(os.path.dirname(self.path_org))
+			make_dir(os.path.dirname(self.path_jpg))
+			try:
+				cached(self.path_org, lambda: GET(src))
+			except KeyboardInterrupt as e:
+				raise e
+			except:
+				raise ImgError('FAILED to get image:', src)
+			shell_cmd(cfg['CONVERT']+' '+self.path_org+" -fuzz 1% -trim +repage -resize '500000@>' -quality 40 -sampling-factor 4:2:0 "+self.path_jpg)
+			if not cfg['SAVE_IMG_SRC']:
+				try_remove(self.path_org)
+		# webp is nice. but HDD space cost $$ and don't want duplicate images
+	
+	def tag(self, alt='', cl=''):
+		code='\n<!-- source: '+self.url_src+'-->\n'
+		if os.path.exists(self.path_webp):
+			code+='<object'+cl+' type="image/webp"'+' data="'+self.url_webp+'">'
+			if os.path.exists(self.path_jpg):
+				code+='<img'+cl+alt+' src="'+self.url_jpg+'"/>'
+			else:
+				pass # could insert message about unsupported webp
+			code+='</object>\n'
+		else:
+			if os.path.exists(self.path_jpg):
+				code+='<img'+cl+alt+' src="'+self.url_jpg+'"/>\n'
+			else:
+				pass # could insert message about missing image
+		return code
+
 class Article:
 
 	def setup(self, item):
@@ -253,42 +306,6 @@ class Article:
 	def exists(self):
 		return have_html_files(self.dstpath)
 	
-	def shrink_img(self, src):
-		""" Accepts a source URL. Downloads the image, recompresses to webp, saves. Teturns url for a local document """
-		if should_terminate():
-			raise ImportError('program kill switch')
-		if 'javascript:' in src:
-			print('rejecting javascript img hack:', src)
-			return None
-		bn=os.path.basename(src)
-		no_suf=re.sub(r'(\..{1,5})$','',bn)
-		if not check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
-			print('rejecting image because of unknown suffix:', bn[-4:])
-			return None
-		org=os.path.join(self.dstdir, 'img0', bn)
-		dst=os.path.join(self.dstdir, 'img', no_suf+'.webp')
-		url=os.path.join('img', no_suf+'.webp')
-		rebuild=cfg.get('REBUILD_IMAGES',False)
-		if not os.path.exists(dst) or rebuild:
-			make_dir(os.path.dirname(dst))
-			try:
-				cached(org, lambda: GET(src))
-			except:
-				print('FAILED to get image:', src)
-				return None
-			shell_cmd(cfg['CONVERT']+' '+org+" -fuzz 1% -trim +repage -resize '500000@>' -quality 30 "+dst)
-			if not cfg['SAVE_IMG_SRC']:
-				try_remove(org)
-			if cfg['SAVE_IMG_INFO']:
-				with open(org+'.txt','w') as f:
-					f.write(src+'\n')
-			print('Write image', dst)
-		fallback=os.path.join(self.dstdir, 'img', no_suf+'.jpg')
-		if os.path.exists(dst) and (rebuild or not os.path.exists(fallback)):
-			# make a fallback JPG. save CPU: downscale the already downscaled image
-			shell_cmd(cfg['CONVERT']+' '+dst+" -fuzz 1% -trim +repage -resize '200000@>' -quality 40 "+fallback)
-		return url
-	
 	def filter_img163(self, attr, cl):
 		""" Reformat <img ...attr...> tag
 		attr: string (xx="yy" zz="ww" ...)
@@ -305,14 +322,14 @@ class Article:
 		if src_url.startswith('//'):
 			# CCTV images
 			src_url = 'http:' + src_url
-		url=self.shrink_img(src_url)
-		if url is None:
+		try:
+			im=Img(self.dstdir, src_url)
+		except ImgError as e:
+			print('Image rejected.', e.message)
 			return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
 		alt=re.search(r'alt="([^"]+)"', attr)
 		alt='' if alt is None else ' '+alt.group(0)
-		return str('\n<!-- source: '+src_url+'-->\n'\
-			+ '<object' + cl + ' type="image/webp"' + ' data="' + url \
-			+ '"><img' + cl + alt + ' src="' + url[:-4] + 'jpg"/></object>\n')
+		return im.tag(alt=alt, cl=cl)
 	
 	def filter_a163(self, attr, cl):
 		url=''
@@ -362,6 +379,9 @@ class Article:
 
 		nl = '\n' if start_slash=='/' else ''
 		return str('<' + start_slash + tag + cl + end_slash + '>' + nl)
+	
+	def have_src_page(self):
+		return os.path.exists(self.dstpath+'.in.gz')
 	
 	def fetch(self):
 		make_dir(self.dstdir)
@@ -690,6 +710,10 @@ class Indexer:
 			p=p.prev
 		return p
 	
+	def total_count(self):
+		r=self.sqc.execute('SELECT COUNT(*) FROM articles')
+		return r.fetchone()[0]
+	
 	def write_master_index_(self, f):
 		f.write(cfg['HEAD_INDEX'])
 		f.write('''<title>News, no scripts</title>
@@ -710,6 +734,7 @@ class Indexer:
 </div>
 '''.encode('utf-8'))
 		f.write('<div class="all"><h1>Archive</h1>\n')
+		f.write('<h2>Total articles: '+str(self.total_count())+'</h2>\n')
 		s = self.sqc.execute( \
 'SELECT * FROM indexes ORDER BY id DESC;')
 		rows = s.fetchall()
@@ -820,7 +845,6 @@ def pull_163(args):
 	for it in items:
 		it['article_class_py_'] = Article163
 		it['article_date_py_'] = parse_date_ymdhms(it['ptime'])
-
 	return items
 
 def pull_cctv(args):
@@ -842,6 +866,13 @@ def pull_cctv(args):
 		it['article_class_py_'] = ArticleCCTV
 		it['article_date_py_'] = parse_date_ymdhms(it['focus_date'])
 		items += [it]
+	return items
+
+def n_most_recent(items, n):
+	items = sorted(items, key=lambda it: it['article_date_py_'])
+	if n >= 0:
+		for it in items[n:]:
+			it['__skipDL'] = True
 	return items
 
 def main():
@@ -875,6 +906,8 @@ def main():
 		try:
 			with open(cfg['PID_FILE'],'w') as f:
 				f.write(str(os.getpid()))
+		except KeyboardInterrupt:
+			return
 		except:
 			print('!! Failed to write', cfg['PID_FILE'])
 			del cfg['PID_FILE']
@@ -889,12 +922,13 @@ def main():
 	items = []
 
 	if not args.no_fetch:
+		n=int(cfg.get('MAX_DL',50))
 		if cfg['GET_163']:
 			print('Fetch 163...')
-			items += pull_163(args)
+			items += n_most_recent(pull_163(args), n)
 		if cfg['GET_CCTV']:
 			print('Fetch CCTV...')
-			items += pull_cctv(args)
+			items += n_most_recent(pull_cctv(args), n)
 
 	idx = Indexer()
 	sq = idx.sq
@@ -906,8 +940,7 @@ def main():
 	revisit_html=\
 		args.rebuild_html or args.rebuild_images
 	
-	items = sorted(items,
-		key=lambda it: it['article_date_py_'])
+	items = n_most_recent(items, -1)
 
 	print('Fetching articles... (%d)' % len(items))
 	for item in items:
@@ -918,7 +951,12 @@ def main():
 		cl_init=item['article_class_py_']
 		art=cl_init(item)
 
+		if item.get('__skipDL',False) and not art.have_src_page():
+			continue
+
 		if len(args.articles)>0:
+			# if specific paths were listed in command line
+			# check if article matches any. skip otherwise
 			tmp=discard_url_params(art.src_url).lower()
 			ok=False
 			for a in args.articles:
@@ -939,6 +977,8 @@ def main():
 				while True:
 					try:
 						art.fetch()
+					except KeyboardInterrupt:
+						break
 					except:
 						print('Failed to GET')
 						break

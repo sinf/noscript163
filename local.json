@@ -10,6 +10,7 @@
 	"PID_FILE":"/tmp/news-aggregator.pid",
 	"GET_163":true,
 	"GET_CCTV":true,
+	"MAX_DL":5,
 	"NICE":false
 }
 
