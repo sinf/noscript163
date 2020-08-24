@@ -728,7 +728,7 @@ class Indexer:
 </div>
 <div lang="zh">
 <h1>介绍</h1>
-<p>你好。我是一个喜欢学中文的西方人，为了提高我的中文水平，我经常看中国的新闻。但是中国网站和APP都很慢，而且它们运行的javascript让我手机掉电特别快。为了解决这个问题，我创建了这个新闻网站。它每天自动下载中国网站上的新闻，移除之中的垃圾，然后保存在位于欧洲的服务器，这样在欧洲的读者会得到更好的使用体验。</p>
+<p>你好。我是一个喜欢学中文的西方人，为了提高我的中文水平，我经常看中国的新闻。但是中国网站和APP都很慢，而且它们运行的javascript让我手机掉电特别快。为了解决这个问题，我创建了这个新闻网站。它每天自动下载中国网站上的新闻，移除之中的垃圾，然后保存到位于欧洲的服务器，这样在欧洲的读者会得到更好的使用体验。</p>
 </div>
 <a href="https://github.com/sinf/noscript163">Github project page</a>
 </div>
@@ -951,9 +951,6 @@ def main():
 		cl_init=item['article_class_py_']
 		art=cl_init(item)
 
-		if item.get('__skipDL',False) and not art.have_src_page():
-			continue
-
 		if len(args.articles)>0:
 			# if specific paths were listed in command line
 			# check if article matches any. skip otherwise
@@ -965,6 +962,9 @@ def main():
 					break
 			if not ok:
 				continue
+
+		if item.get('__skipDL',False) and not art.have_src_page():
+			continue
 
 		print(art.src_url)
 
