@@ -603,6 +603,7 @@ class IndexPage:
 		self.et=ET.ElementTree(ET.fromstring(head_code))
 		self.load()
 		self.body=self.find2(self.et, ".//body")
+		self.modified=False
 		if self.body is None:
 			raise Exception('oops. body not found. xpath failed')
 		print('Index page initialized',self.filepath,'(%d)'%self.count())
@@ -661,6 +662,7 @@ class IndexPage:
 	def store(self, art):
 		if self.has(art.idx_url):
 			return
+		self.modified=True
 		code=\
 '<div class="article-ref">\n' +\
 '<a class="local" href="'+art.idx_url+'">\n' +\
@@ -678,7 +680,9 @@ class IndexPage:
 		aa=self.body.findall(".//a[@class='"+c+"']")
 		aa+=self.body.findall(".//"+self.ns+"a[@class='"+c+"']")
 		for a in aa:
-			a.attrib['href'] = url
+			if a.attrib['href'] != url:
+				a.attrib['href'] = url
+				self.modified=True
 	
 	def write_xhtml(self, f):
 		f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -688,7 +692,12 @@ class IndexPage:
 	def save(self, sqc, r=1):
 		if self.count() < 1:
 			print('empty index page. not saving')
-			return
+			return False
+		if (not cfg.get('REBUILD_HTML',False)) \
+		and (not self.modified) \
+		and have_html_files(self.filepath):
+			print("page wasn't modified. not saving")
+			return False
 		self.sort()
 		if self.count()>0: # get_date_str fail if count==0
 			i=self.seq_id
@@ -704,6 +713,7 @@ class IndexPage:
 				self.prev.save(sqc, r-1)
 		print('Write index page',self.filepath)
 		write_html_files(self.filepath, lambda f,s=self: s.write_xhtml(f))
+		return True
 
 class Indexer:
 	def __init__(self):
@@ -750,15 +760,15 @@ class Indexer:
 <meta name="description" content="News, no scripts"/>
 </head><body id="mainIdx">
 ''')
-		f.write('<a class="recent" href="'\
+		f.write('<a class="recent bling" href="'\
 +cfg['LAST_PAGE_ALIAS']+'">&gt;&gt;&gt; Enter &lt;&lt;&lt;</a><br/>\n')
 		f.write(u'''<div class="introd"><div lang="en">
 <h1>About</h1>
-<p>Hey. I study chinese. I read their news. But chinese news apps and websites suck! They're slow and put a heavy burden on phone's battery. That's why I made this service. Here you can read chinese news served fast from Europe. No javascript, no ads, just news.</p>
+<p>Hey. I study chinese. I read their news. But chinese websites and apps put a heavy burden on phone's battery. That's why I made this service. Here you can read chinese news served fast from Europe. No javascript, no ads, just news.</p>
 </div>
 <div lang="zh">
 <h1>介绍</h1>
-<p>你好。我是一个喜欢学中文的西方人，为了提高我的中文水平，我经常看中国的新闻。但是中国网站和APP都很慢，而且它们运行的javascript让我手机掉电特别快。为了解决这个问题，我创建了这个新闻网站。它每天自动下载中国网站上的新闻，移除之中的垃圾，然后保存到位于欧洲的服务器，这样在欧洲的读者会得到更好的使用体验。</p>
+<p>你好。我是一个喜欢学中文的芬兰人，我经常看中国的新闻。但是从欧洲打开中国的网站很慢，而且它们运行的javascript让我手机掉电特别快。为了解决这个问题，我创建了这个网站。它简单的让大家看中国网站的新闻，但是在欧洲的读者会有更通畅的使用体验。</p>
 </div>
 <a href="https://github.com/sinf/noscript163">Github project page</a>
 </div>
@@ -786,9 +796,9 @@ class Indexer:
 		f.write('</div></body></html>\n')
 	
 	def write_master_index(self):
-		write_html_files(
-			the_art_dir(cfg['MASTER_INDEX']),
-			lambda f: self.write_master_index_(f))
+		p=the_art_dir(cfg['MASTER_INDEX'])
+		print('Write master index',p)
+		write_html_files(p, lambda f: self.write_master_index_(f))
 	
 	def new_page(self):
 		i=self.next_id
@@ -846,7 +856,7 @@ def get_mainpage(url, cache_prefix, args):
 			# some other news source deals with the file
 			return None
 	else:
-		p=the_art_dir(time.strftime( \
+		p=the_art_dir('in/'+time.strftime( \
 			cache_prefix + '-%Y-%m-%d-%H.html'))
 		frontpage = cached_gz(p, lambda u=url:GET(u))
 	assert type(frontpage) is str
@@ -970,6 +980,7 @@ def main():
 	ap.add_argument('-r', '--rebuild-html', action='store_true',help="Rebuild HTML files")
 	ap.add_argument('-R', '--rebuild-images', action='store_true',help="Rebuild HTML and image files")
 	ap.add_argument('-I', '--rebuild-index-only', action='store_true',help="Skip rebuilding articles")
+	ap.add_argument('-M', '--rebuild-mainpage', action='store_true',help='Rebuild main page and quit')
 	ap.add_argument('-n', '--no-fetch', action='store_true',help="Just rebuild mainpage without downloading anything")
 	args=ap.parse_args()
 
@@ -988,6 +999,10 @@ def main():
 	T_START=time.time()
 	print('My PID is', os.getpid())
 	if 'PID_FILE' in cfg:
+		if os.path.exists(cfg['PID_FILE']):
+			print('Another process maybe running, aborting')
+			print('If not, delete', cfg['PID_FILE'], 'and try again')
+			return
 		try:
 			with open(cfg['PID_FILE'],'w') as f:
 				f.write(str(os.getpid()))
@@ -1006,6 +1021,12 @@ def main():
 	ET.register_namespace('','http://www.w3.org/1999/xhtml')
 	items = []
 
+	idx = Indexer()
+	sq = idx.sq
+	if args.rebuild_mainpage:
+		idx.write_master_index()
+		return
+
 	if not args.no_fetch:
 		n=int(cfg.get('MAX_DL',50))
 		if cfg['GET_163']:
@@ -1017,9 +1038,6 @@ def main():
 		if cfg['GET_SINA']:
 			print('Fetch sina...')
 			items += n_most_recent(pull_sina(args), n)
-
-	idx = Indexer()
-	sq = idx.sq
 
 	rebuild_index_only=\
 		cfg.get('REBUILD_HTML',False) \
@@ -1065,8 +1083,8 @@ def main():
 				while True:
 					try:
 						art.fetch()
-					except KeyboardInterrupt:
-						break
+					except KeyboardInterrupt as e:
+						raise e
 					except:
 						print('Failed to GET')
 						break

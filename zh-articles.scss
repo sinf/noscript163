@@ -4,7 +4,6 @@ $c: #B8E6F5;
 $c-url: darken($c,7%);
 $c-text: white;
 $c-text-whatevs: #FAF6E1;
-$c-bg: #2D334D;
 $c-lines: gray;
 $c-enter-bg: #161A26;
 
@@ -13,6 +12,11 @@ $c-nav: lighten($c-url,20%);
 $c-art-title: white;
 $c-art-desc: $c-text-whatevs;
 $c-art-body: white;
+
+//$c-bg: #1B345D;
+//$c-bg: #00337C;
+//$c-bg: #2C468B;
+$c-bg: #324A8B;
 
 * {
 	box-sizing: border-box;
@@ -23,12 +27,15 @@ $c-art-body: white;
 
 html {
 	font-size: 1.1em;
-	background-color: $c-bg;
 	color: $c-text;
 	text-shadow: 0.1em 0.1em 0.3em black;
 
-	background: rgb(53,60,89);
-	background: linear-gradient(180deg, rgba(53,60,89,1) 0%, rgba(76,84,102,1) 100%);
+
+//	background: rgb(53,60,89);
+//	background: linear-gradient(180deg, rgba(53,60,89,1) 0%, rgba(76,84,102,1) 100%);
+	background-color: darken($c-bg, 7.5%);
+	background: darken($c-bg, 7.5%);
+	background: linear-gradient(180deg, $c-bg 0%, darken($c-bg,15%) 100%);
 	background-size: 100%;
 	background-attachment: fixed;
 }
@@ -173,18 +180,21 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 	// large Enter button
 	.recent {
 		display: inline-block;
+		position: relative;
 		margin: 1rem 0 0.5rem 0;
 		padding: .8rem .2rem .8rem .2rem;
-		background-color: $c-enter-bg;
-
-background: rgb(68,87,130);
-background: linear-gradient(180deg, rgba(68,87,130,1) 0%, rgba(53,60,89,1) 20%, rgba(27,32,51,1) 50%, rgba(53,60,89,1) 80%, rgba(107,131,184,1) 100%);
-
-		font-size: 150%;
+		background-color: darken($c-bg, 20%);
+		font-size: 160%;
 		text-shadow: 0.1em 0.1em 0.3em black;
-		border: 0.1em solid $c-text;
-		border-radius: 0.75em;
+//		border: 0.1em solid $c-text;
+		color: white;
+		border: none;
+		border-radius: 0.5em;
 		width: 20em;
+		&:hover {
+			text-shadow: 0 0 0.3em white;
+			top: 0.05em;
+		}
 	}
 
 	// Archive
@@ -195,9 +205,34 @@ background: linear-gradient(180deg, rgba(68,87,130,1) 0%, rgba(53,60,89,1) 20%, 
 			display: inline-block;
 			float: left;
 			padding: 0.5em;
-			border: 1px dashed $c-lines;
-			background: $c-bg;
+			background: darken($c-bg,15%);
+			border-radius: 0.3em;
+			margin: 0.1em;
 		}
 	}
+}
+
+// Bling animation:
+// transparent sheared square moving left to right
+.bling {
+	position: relative;
+	overflow: hidden;
+}
+.bling:hover:after {
+	content:'';
+	width: 30%;
+	height: 110%;
+	position: absolute;
+	left: -25em;
+	top: -5%;
+	opacity: 0.5;
+	background: white;
+	box-shadow: 0 0 1.5em 0.1em white;
+	animation: btnBling 1.7s 0s linear infinite;
+	transform: translateX(0em) skew(-30deg);
+}
+@keyframes btnBling {
+	0% { transform: translateX(0em) skew(-30deg); }
+	100% { transform: translateX(65em) skew(-30deg); }
 }
 
