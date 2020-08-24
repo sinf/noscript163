@@ -80,6 +80,7 @@ cfg={
 <meta name="keywords" content="china,news,chinese,cctv,新闻,中国,article,read,recent,learn,study"/>
 <meta name="robots" content="index,follow"/>
 <meta name="author" content="ArhoM"/>
+<style type="text/css">html{background-color:#324A8B;color:white;}</style>
 <link rel="stylesheet" type="text/css" href="zh-articles.css"/>
 <link rel="icon" href="favicon.gif"/>
 '''.encode('utf-8'),
@@ -92,6 +93,7 @@ cfg={
 <meta http-equiv="Content-Type" content="application/html;charset=UTF-8"/>
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
+<style type="text/css">html{background-color:#324A8B;color:white;}</style>
 <link rel="stylesheet" type="text/css" href="../zh-articles.css"/>
 <link rel="icon" href="../favicon.gif"/>
 '''.encode('utf-8'),
@@ -262,7 +264,7 @@ class Img:
 				raise e
 			except:
 				raise ImgError('FAILED to get image:', src)
-			shell_cmd(cfg['CONVERT']+' '+self.path_org+" -fuzz 1% -trim +repage -resize '500000@>' -quality 40 -sampling-factor 4:2:0 "+self.path_jpg)
+			shell_cmd(cfg['CONVERT']+' '+self.path_org+"[0] -fuzz 5% -define trim:percent-background=0% -trim +repage -resize '500000@>' -quality 40 -sampling-factor 4:2:0 "+self.path_jpg)
 			if not cfg['SAVE_IMG_SRC']:
 				try_remove(self.path_org)
 		# webp is nice. but HDD space cost $$ and don't want duplicate images
@@ -404,7 +406,10 @@ class Article:
 			lambda:GET(self.src_url))
 	
 	def is_poisoned(self):
-		return os.path.exists(self.dstpath+'.skip')
+		p=os.path.exists(self.dstpath+'.skip')
+		p|=self.origin.startswith('news.cctv') and '/PHOA' in self.src_url
+		if p: try_remove(self.dstpath+'.in.gz');
+		return p
 	
 	def mark_poisoned(self):
 		open(self.dstpath+'.skip','w').close()
@@ -840,27 +845,31 @@ class Indexer:
 	def article_back_ref(self):
 		return '../' + self.page.sib_url
 
-def get_mainpage(url, cache_prefix, args):
-	if len(args.mainpage)>0:
-		# src file specified on command line
-		src_path=args.mainpage[0]
-		src_bn=os.path.basename(src_path)
-		print('Using', src_path, 'as the front page')
-		if src_bn.startswith(cache_prefix):
-			opn=open
-			if src_bn.endswith('.gz'):
-				opn=gzip.open
-			with opn(src_path,'rb') as f:
-				frontpage=f.read()
-		else:
-			# some other news source deals with the file
-			return None
+def get_mainpages(url, cache_prefix, args):
+	if cfg.get('REBUILD_HTML',False):
+		d_in=the_art_dir('in')
+		for src_bn in os.listdir(d_in):
+			src_path=os.path.join(d_in, src_bn)
+			ok=True
+			if len(args.mainpage)>0:
+				ok=False
+				for p in args.mainpage:
+					if os.path.basename(p)==src_bn:
+						ok=True
+						break
+			if ok and src_bn.startswith(cache_prefix):
+				print('Read front page:', src_path)
+				opn=gzip.open if src_bn.endswith('.gz') else open
+				with opn(src_path,'rb') as f:
+					frontpage=f.read()
+				yield frontpage
+			# else: some other news source deals with the file
 	else:
 		p=the_art_dir('in/'+time.strftime( \
 			cache_prefix + '-%Y-%m-%d-%H.html'))
 		frontpage = cached_gz(p, lambda u=url:GET(u))
-	assert type(frontpage) is str
-	return frontpage
+		assert type(frontpage) is str
+		yield frontpage
 
 def parse_date_ymdhms(x):
 	t = x.encode('utf-8') if type(x) is unicode else str(x)
@@ -869,95 +878,88 @@ def parse_date_ymdhms(x):
 def pull_163(args):
 	url='https://3g.163.com/touch/news/'
 	prefix='news_163'
-	frontpage=get_mainpage(url, prefix, args)
-	if frontpage is None:
-		return []
-	# Fetch single-line json array from front page
-	# difference between topicData and channelData?
-	#topicData = scanJ(frontpage, r'^\s*var\s+topicData\s*=\s*({.*});$')
-	chanData = scanJ(frontpage, r'^\s*var\s+channelData\s*=\s*({.*});$')
 	items=[]
-	items+=chanData['listdata']['data']
-	for xx in chanData['topdata']['data']:
-		assert type(xx) is dict
-		assert 'ptime' in xx
-		items+=[xx]
-	for it in items:
-		it['article_class_py_'] = Article163
-		it['article_date_py_'] = parse_date_ymdhms(it['ptime'])
+	for frontpage in get_mainpages(url, prefix, args):
+		# Fetch single-line json array from front page
+		# difference between topicData and channelData?
+		#topicData = scanJ(frontpage, r'^\s*var\s+topicData\s*=\s*({.*});$')
+		chanData = scanJ(frontpage, r'^\s*var\s+channelData\s*=\s*({.*});$')
+		items+=chanData['listdata']['data']
+		for xx in chanData['topdata']['data']:
+			assert type(xx) is dict
+			assert 'ptime' in xx
+			items+=[xx]
+		for it in items:
+			it['article_class_py_'] = Article163
+			it['article_date_py_'] = parse_date_ymdhms(it['ptime'])
 	return items
 
 def pull_cctv(args):
 	url='http://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/news_1.jsonp'
 	prefix='news_cctv'
-	news_1=get_mainpage(url, prefix, args)
-	if news_1 is None:
-		return []
-	try:
-		news_json=json.loads(news_1[5:-1], encoding='utf-8')
-	except Exception, err:
-		print('Failed to parse CCTV json')
-		print('json', news_1[:10], '...', news_1[-10:])
-		print('json (inner)', news_1[5:10], '...', news_1[-10:-1])
-		traceback.print_exc()
-		sys.exit(1)
 	items=[]
-	for it in news_json['data']['list']:
-		it['article_class_py_'] = ArticleCCTV
-		it['article_date_py_'] = parse_date_ymdhms(it['focus_date'])
-		items += [it]
+	for news_1 in get_mainpages(url, prefix, args):
+		try:
+			news_json=json.loads(news_1[5:-1], encoding='utf-8')
+		except Exception, err:
+			print('Failed to parse CCTV json')
+			print('json', news_1[:10], '...', news_1[-10:])
+			print('json (inner)', news_1[5:10], '...', news_1[-10:-1])
+			traceback.print_exc()
+			sys.exit(1)
+		for it in news_json['data']['list']:
+			it['article_class_py_'] = ArticleCCTV
+			it['article_date_py_'] = parse_date_ymdhms(it['focus_date'])
+			items += [it]
 	return items
 
 def pull_sina(args):
 	url='https://news.sina.com.cn/'
 	prefix='news_sina'
-	mainpage=get_mainpage(url, prefix, args)
-	if mainpage is None:
-		return []
-	p=re.search(r'<!-- 新闻中心要闻区 begin -->(.*?)<!-- 新闻中心要闻区 end -->', mainpage, flags=re.S|re.M)
-	if p is None:
-		return []
-	# only want few items and yaowen supposedly has the relevant ones
-	yaowen=p.group(1)
+	items=[]
 	# no timestamps on the frontpage, must http HEAD. cache responses to head.db for quicker rebuild
 	sq = sqlite3.connect(the_art_dir('head.db'))
 	sqc = sq.cursor()
 	sqc.execute('CREATE TABLE IF NOT EXISTS head (url TEXT UNIQUE, date TEXT)')
-	items=[]
 	try:
-		for hl in re.findall( \
-	r'href="(https?://news.sina.[^"]+\.[xs]?html)"[^>]*>([^<]{3,300})<', \
-			yaowen, flags=re.S|re.M):
-			assert type(hl) is tuple
-			url=hl[0]
-			title=hl[1]
-			di=re.sub(r'.*/(.*)\.[a-zA-Z]+$',lambda x: x.group(1),url)
-			assert '/' not in di
-			assert '.' not in di
-			row=sqc.execute('SELECT date FROM head WHERE url = ?',(url,)).fetchone()
-			try:
-				if row is not None and len(row)>0:
-					d=row[0]
-				else:
-					d=HEAD(url)['Date']
-					sqc.execute('INSERT INTO head VALUES (?,?)',(url,d))
-					be_nice()
-				ts=time.strptime(d, '%a, %d %b %Y %H:%M:%S GMT')
-			except KeyboardInterrupt as e:
-				raise e
-			except:
-				traceback.print_exc()
-				print('Failed to query', url)
+		for mainpage in get_mainpages(url, prefix, args):
+			p=re.search(r'<!-- 新闻中心要闻区 begin -->(.*?)<!-- 新闻中心要闻区 end -->', mainpage, flags=re.S|re.M)
+			if p is None:
+				# TODO flag as poisoned
 				continue
-			items+=[{
-				'article_class_py_' : ArticleSina,
-				'article_date_py_' : ts,
-				'link' : url,
-				'title' : title,
-				'docid' : di,
-			}]
-			if len(items) >= 30:
-				break #shouldn't happen
+			# only want few items and yaowen supposedly has the relevant ones
+			yaowen=p.group(1)
+			for hl in re.findall( \
+		r'href="(https?://news.sina.[^"]+\.[xs]?html)"[^>]*>([^<]{3,300})<', \
+			yaowen, flags=re.S|re.M):
+				assert type(hl) is tuple
+				url=hl[0]
+				title=hl[1]
+				di=re.sub(r'.*/(.*)\.[a-zA-Z]+$',lambda x: x.group(1),url)
+				assert '/' not in di
+				assert '.' not in di
+				row=sqc.execute('SELECT date FROM head WHERE url = ?',(url,)).fetchone()
+				try:
+					if row is not None and len(row)>0:
+						d=row[0]
+					else:
+						d=HEAD(url)['Date']
+						sqc.execute('INSERT INTO head VALUES (?,?)',(url,d))
+						be_nice()
+					ts=time.strptime(d, '%a, %d %b %Y %H:%M:%S GMT')
+				except KeyboardInterrupt as e:
+					raise e
+				except:
+					traceback.print_exc()
+					print('Failed to query', url)
+					continue
+				items+=[{
+					'article_class_py_' : ArticleSina,
+					'article_date_py_' : ts,
+					'link' : url,
+					'title' : title,
+					'docid' : di,
+				}]
 	finally:
 		sqc.close()
 		sq.commit()

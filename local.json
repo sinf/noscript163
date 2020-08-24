@@ -2,7 +2,7 @@
 	"WEB_ROOT":".",
 	"ARTICLES":"z",
 	"BACK":"/main.html",
-	"INDEX_BATCH":8,
+	"INDEX_BATCH":20,
 	"SAVE_IMG_SRC":true,
 	"SAVE_HTML":true,
 	"SAVE_HTML_GZ":true,
