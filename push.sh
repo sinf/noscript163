@@ -5,8 +5,9 @@ if [ -z "$UPLOAD_STUFF_TO" ]; then
 fi
 set -e
 set -x
+ND=z
 make
 #scp art.py $UPLOAD_STUFF_TO/art.py
-#scp zh-news/zh-articles.css $UPLOAD_STUFF_TO/zh-news/zh-articles.css
+#scp $ND/zh-articles.css $UPLOAD_STUFF_TO/$ND/zh-articles.css
 rsync -azivcR --skip-compress=jpg/webp/png/gif/mp4/gz/bz2 -e ssh --rsync-path=~/bin/rsync $(cat rsync.lst) $UPLOAD_STUFF_TO/
 

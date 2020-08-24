@@ -1,12 +1,18 @@
 
-$c: lightblue;
-$c-url: #BAE8F7;
+$c: #B8E6F5;
+
+$c-url: darken($c,7%);
 $c-text: white;
-$c-text-whatevs: lightgray;
-//$c-bg: #1C1F26;
-$c-bg: #282A40;
+$c-text-whatevs: #FAF6E1;
+$c-bg: #2D334D;
 $c-lines: gray;
 $c-enter-bg: #161A26;
+
+$c-nav: lighten($c-url,20%);
+
+$c-art-title: white;
+$c-art-desc: $c-text-whatevs;
+$c-art-body: white;
 
 * {
 	box-sizing: border-box;
@@ -18,19 +24,12 @@ $c-enter-bg: #161A26;
 html {
 	font-size: 1.1em;
 	background-color: $c-bg;
-/*
-	background-image: url(bgsym.jpg);
-	background-size: 1in;
-	background-repeat: repeat;
-*/
 	color: $c-text;
 	text-shadow: 0.1em 0.1em 0.3em black;
 
-background: rgb(53,60,89);
-background: linear-gradient(180deg, rgba(53,60,89,1) 0%, rgba(76,84,102,1) 100%);
-
+	background: rgb(53,60,89);
+	background: linear-gradient(180deg, rgba(53,60,89,1) 0%, rgba(76,84,102,1) 100%);
 	background-size: 100%;
-	background-repeat: no-repeat;
 	background-attachment: fixed;
 }
 
@@ -46,7 +45,7 @@ nav {
 	a, a:visited {
 		margin: 0.5em auto 0.5em auto;
 		display: inline-block;
-		color: lighten($c-url,20%);
+		color: $c-nav;
 	}
 	border-color: $c-lines;
 	border-width: 1px;
@@ -57,7 +56,7 @@ nav {
 
 
 a, a:visited {
-	color: $c;
+	color: $c-url;
 	border: 1px dotted $c-url;
 }
 
@@ -73,29 +72,35 @@ a, a:visited {
 	border-bottom: 2px dotted $c;
 	padding-bottom: 0.5em;
 	margin-bottom: 1em;
+
+	.date {
+	}
+
 	a.local {
 		text-decoration: none;
 		border: none;
+
+		.title {
+			color: $c-art-title;
+		}
+		.desc {
+			color: $c-art-desc;
+			text-decoration: none;
+			border: none;
+		}
 	}
+
+	// Source: blahblah
 	a.origin {
-	}
-	.title {
-	}
-	.desc {
-		color: lighten($c,50%);
-		text-decoration: none;
-		border: none;
-	}
-	.date {
 	}
 }
 
 // reformatted articles
 body>.main-content, article {
 	margin: 0 0.5em 0 0.5em;
-	color: lighten($c,50%);
-	.title {
-		color: $c;
+	color: $c-art-body;
+	.title, h1 {
+		color: $c-art-title;
 	}
 	strong, b {
 		font-style: bold;
@@ -150,15 +155,18 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 		display: inline-block;
 		margin: 0.5em 1em 0.5em 0;
 		a {
+			// github link
 			display: inline-block;
 			margin: 1em;
 		}
-	}
-	.introd div:lang(en) {
-		font-size: 90.91%;
+		p {
+		}
+		div:lang(en) {
+			font-size: 90.91%;
+		}
 	}
 
-// large Enter button
+	// large Enter button
 	.recent {
 		display: inline-block;
 		margin: 1rem 0 0.5rem 0;
@@ -170,13 +178,17 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 		border-radius: 0.75em;
 		width: 20em;
 	}
+
+	// Archive
 	.all {
 		display: inline-block;
+		// Box with date and index page links
 		.d {
 			display: inline-block;
 			float: left;
 			padding: 0.5em;
 			border: 1px dashed $c-lines;
+			background: $c-bg;
 		}
 	}
 }

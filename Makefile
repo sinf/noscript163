@@ -1,6 +1,6 @@
 .PHONY: all clean clean-img distclean view testsetup
 
-ND:=zh-news
+ND:=z
 
 all: news.tar.bz2
 

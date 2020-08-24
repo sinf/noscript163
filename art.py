@@ -77,6 +77,9 @@ cfg={
 <meta http-equiv="Content-Type" content="application/xhtml+xml;charset=UTF-8"/>
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
+<meta name="keywords" content="china,news,chinese,cctv,新闻,中国,article,read,recent,learn,study"/>
+<meta name="robots" content="index,follow"/>
+<meta name="author" content="ArhoM"/>
 <link rel="stylesheet" type="text/css" href="zh-articles.css"/>
 <link rel="icon" href="favicon.gif"/>
 '''.encode('utf-8'),
@@ -540,7 +543,6 @@ class IndexPage:
 		self.ns='{http://www.w3.org/1999/xhtml}'
 		head_code=cfg['HEAD_INDEX']+\
 	'<title>' + title + '''</title>
-<meta name="author" content="ArhoM"/>
 <meta name="description" content="News, no scripts"/>
 </head><body id="subIdx">
 ''' + self.nav() + '''
@@ -691,7 +693,6 @@ class Indexer:
 	def write_master_index_(self, f):
 		f.write(cfg['HEAD_INDEX'])
 		f.write('''<title>News, no scripts</title>
-<meta name="author" content="ArhoM"/>
 <meta name="description" content="News, no scripts"/>
 </head><body id="mainIdx">
 ''')
@@ -699,11 +700,11 @@ class Indexer:
 +cfg['LAST_PAGE_ALIAS']+'">&gt;&gt;&gt; Enter &lt;&lt;&lt;</a><br/>\n')
 		f.write(u'''<div class="introd"><div lang="en">
 <h1>About</h1>
-<p>To improve my chinese I read chinese news. But news apps and websites suck! They drain battery with ads, have long latency and random junk, track the user and have broken HTTPS. This service solves those problems. It downloads news each day and reformats them into static HTML without javascript. Images are compressed to 5% of the original size. So far it only supports two sites, 163.com and CCTV. I will add more later.</p>
+<p>Hey. I study chinese. I read their news. But chinese news apps and websites suck! They're slow and put a heavy burden on phone's battery. That's why I made this service. Here you can read chinese news served fast from Europe. No javascript, no ads, just news.</p>
 </div>
 <div lang="zh">
 <h1>介绍</h1>
-<p>为了提高我的中文，我会偶尔看看中国的新闻网站。可是你们网站太慢了。装满了那么多javascript垃圾我手机的电池要着火了！服务器遥远，有广告，有跟踪曲奇，有长城，https有毛病。为了解决这些问题，我编程了这个服务。它每天几次下载新闻，移除script，把单纯的文章写成简单不变的html。它把图片数据微缩到5%的大小。在欧洲看我的网页应该比原来的网页快很多。目前只有两个新闻来源，163.com和CCTV。你如果觉得这服务有用，可以给我建议接下来加什么来源。</p>
+<p>你好。我是一个喜欢学中文的西方人，为了提高我的中文水平，我经常看中国的新闻。但是中国网站和APP都很慢，而且它们运行的javascript让我手机掉电特别快。为了解决这个问题，我创建了这个新闻网站。它每天自动下载中国网站上的新闻，移除之中的垃圾，然后保存在位于欧洲的服务器，这样在欧洲的读者会得到更好的使用体验。</p>
 </div>
 <a href="https://github.com/sinf/noscript163">Github project page</a>
 </div>
@@ -853,6 +854,7 @@ def main():
 	ap.add_argument('-r', '--rebuild-html', action='store_true',help="Rebuild HTML files")
 	ap.add_argument('-R', '--rebuild-images', action='store_true',help="Rebuild HTML and image files")
 	ap.add_argument('-I', '--rebuild-index-only', action='store_true',help="Skip rebuilding articles")
+	ap.add_argument('-n', '--no-fetch', action='store_true',help="Just rebuild mainpage without downloading anything")
 	args=ap.parse_args()
 
 	print('\nNews article archiver & reformatter started')
@@ -886,13 +888,13 @@ def main():
 	ET.register_namespace('','http://www.w3.org/1999/xhtml')
 	items = []
 
-	if cfg['GET_163']:
-		print('Fetch 163...')
-		items += pull_163(args)
-
-	if cfg['GET_CCTV']:
-		print('Fetch CCTV...')
-		items += pull_cctv(args)
+	if not args.no_fetch:
+		if cfg['GET_163']:
+			print('Fetch 163...')
+			items += pull_163(args)
+		if cfg['GET_CCTV']:
+			print('Fetch CCTV...')
+			items += pull_cctv(args)
 
 	idx = Indexer()
 	sq = idx.sq

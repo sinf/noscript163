@@ -1,6 +1,6 @@
 {
 	"WEB_ROOT":".",
-	"ARTICLES":"zh-news",
+	"ARTICLES":"z",
 	"BACK":"/main.html",
 	"INDEX_BATCH":8,
 	"SAVE_IMG_SRC":true,
