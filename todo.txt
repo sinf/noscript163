@@ -1,7 +1,12 @@
 
 fix regex (some weird broken html a href tags)
 
+fix same index page generated multiple times (1 item different)
+
 add more source sites
+infzm.com
+huanqiu.com
+baidu
 
 filter the news
 - max N articles/day

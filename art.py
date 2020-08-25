@@ -68,7 +68,8 @@ cfg={
 	'CONVERT':'convert',
 	'CPULIMIT':'cpulimit',
 
-# all index documents include this in their <head>
+# All index documents include this in their <head>
+# we control the content and can use XHTML for better parsing performance
 	'HEAD_INDEX': u'''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh" lang="zh">
@@ -85,7 +86,7 @@ cfg={
 <link rel="icon" href="favicon.gif"/>
 '''.encode('utf-8'),
 
-# and all article documents include this
+# All article documents include this. Not using XHTML in case the articles have sloppy and broken code
 	'HEAD_ARTICLE': u'''<!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -111,6 +112,8 @@ cfg={
 
 import traceback
 import urllib2
+from cStringIO import StringIO
+import subprocess
 import re
 import json
 import os
@@ -120,16 +123,18 @@ import sqlite3
 import xml.etree.ElementTree as ET
 import argparse
 import gzip
+import atexit
 
-def should_terminate():
+def check_kill_switch():
 	# to kill the program (when started by another user) use PID_FILE and delete it
-	return 'PID_FILE' in cfg and not os.path.exists(cfg['PID_FILE'])
+	if 'PID_FILE' in cfg and not os.path.exists(cfg['PID_FILE']):
+		raise ImportError('program kill switch')
 
 def try_remove(x):
 	try:
 		os.remove(x)
 		print('Removed',x)
-	except:
+	except OSError:
 		pass
 
 def try_link(x,y):
@@ -140,7 +145,9 @@ def try_link(x,y):
 
 def be_nice():
 	if cfg['NICE']:
-		time.sleep(5)
+		for i in range(5):
+			check_kill_switch()
+			time.sleep(1)
 
 def the_dir(path):
 	wr=os.environ.get('WEB_ROOT',cfg['WEB_ROOT'])
@@ -170,6 +177,52 @@ def HEAD(url):
 	nfo = r.info()
 	r.close()
 	return nfo
+
+HEAD_sq_conn=None
+HEAD_sq_cur=None
+
+def HEAD_sq_cleanup():
+	global HEAD_sq_conn
+	global HEAD_sq_cur
+	HEAD_sq_cur.close()
+	HEAD_sq_conn.commit()
+	HEAD_sq_conn.close()
+
+def HEAD_date(url):
+	global HEAD_sq_conn
+	global HEAD_sq_cur
+	if HEAD_sq_conn is None:
+		HEAD_sq_conn = sqlite3.connect(the_art_dir('head.db'))
+		HEAD_sq_cur = HEAD_sq_conn.cursor()
+		HEAD_sq_cur.execute( \
+'CREATE TABLE IF NOT EXISTS head (url TEXT UNIQUE, date TEXT)')
+		atexit.register(HEAD_sq_cleanup)
+	sqc = HEAD_sq_cur
+	row = sqc.execute('SELECT date FROM head WHERE url = ?',(url,)).fetchone()
+	try:
+		if row is not None and len(row)>0:
+			d=row[0]
+		else:
+			d=HEAD(url)['Date']
+			sqc.execute('INSERT INTO head VALUES (?,?)',(url,d))
+		ts=time.strptime(d, '%a, %d %b %Y %H:%M:%S GMT')
+		be_nice()
+	except KeyboardInterrupt as e:
+		raise e
+	except ImportError as e:
+		raise e
+	except:
+		ts=time.localtime()
+		traceback.print_exc()
+		print('Failed to query', url)
+	return ts
+
+def htmlspecialchars(s):
+	s=S(s)
+	for a,b in (
+		("&","&amp;"),('"',"&quot;"),("<","&lt;"),(">","&gt;")
+		): s=s.replace(a,b);
+	return s
 
 def make_dir(d):
 	if len(d) and not os.path.isdir(d):
@@ -215,33 +268,25 @@ def check_ext(url,valid):
 			return True
 	return False
 
-def write_html_files(path, func):
-	if cfg['SAVE_HTML']:
-		with open(path,'wb') as f:
-			func(f)
-	if cfg['SAVE_HTML_GZ']:
-		with gzip.open(path+'.gz','wb') as f:
-			func(f)
-
 def have_html_files(path):
 	return (not cfg.get('REBUILD_HTML',False)) \
 		and ((not cfg.get('SAVE_HTML',True)) or os.path.exists(path)) \
 		and ((not cfg.get('SAVE_HTML_GZ',True)) or os.path.exists(path+'.gz'))
 	
-def shell_cmd(cmd):
+def shell_cmd(args):
 	if cfg['NICE']:
-		cmd=cfg['CPULIMIT']+' -q -l 15 -- '+cmd
-	print(cmd)
-	os.system(cmd)
+		args=cfg['CPULIMIT']+' -q -l 15 -- '.split()+args
+	print(' '.join(args))
+	ret=subprocess.call(args)
 	be_nice()
+	return ret
 
 class ImgError(Exception):
 	pass
 
 class Img:
 	def __init__(self, dstdir, src):
-		if should_terminate():
-			raise ImportError('program kill switch')
+		check_kill_switch()
 		if 'javascript:' in src:
 			raise ImgError('javascript img hack: '+src)
 		bn=os.path.basename(src)
@@ -256,17 +301,23 @@ class Img:
 		self.url_jpg='img/'+no_suf+'.jpg'
 		rebuild=cfg.get('REBUILD_IMAGES',False)
 		if not os.path.exists(self.path_jpg) or rebuild:
-			make_dir(os.path.dirname(self.path_org))
 			make_dir(os.path.dirname(self.path_jpg))
 			try:
 				cached(self.path_org, lambda: GET(src))
 			except KeyboardInterrupt as e:
 				raise e
+			except ImportError as e:
+				raise e
 			except:
 				raise ImgError('FAILED to get image:', src)
-			shell_cmd(cfg['CONVERT']+' '+self.path_org+"[0] -fuzz 5% -define trim:percent-background=0% -trim +repage -resize '500000@>' -quality 40 -sampling-factor 4:2:0 "+self.path_jpg)
-			if not cfg['SAVE_IMG_SRC']:
-				try_remove(self.path_org)
+			if shell_cmd([cfg['CONVERT'],self.path_org+"[0]"] +\
+"-fuzz 1% -trim +repage -resize 500000@> -quality 40 -sampling-factor 4:2:0".split() + [self.path_jpg]) == 0:
+				# convert success
+				if not cfg['SAVE_IMG_SRC']:
+					try_remove(self.path_org)
+			else:
+				# remove potentially broken output file
+				try_remove(self.path_jpg)
 		# webp is nice. but HDD space cost $$ and don't want duplicate images
 	
 	def tag(self, alt='', cl=''):
@@ -282,10 +333,14 @@ class Img:
 			if os.path.exists(self.path_jpg):
 				code+='<img'+cl+alt+' src="'+self.url_jpg+'"/>\n'
 			else:
-				pass # could insert message about missing image
+				code+='<!-- file not found -->\n'
 		return code
 
 class Article:
+
+	frontpage_url=None
+	frontpage_file_prefix=None
+	origin=None
 
 	def setup(self, item):
 		""" set self. docid, src_url, title, desc, origin """
@@ -299,13 +354,11 @@ class Article:
 		assert False
 
 	def __init__(self, item):
-		self.setup(item)
-
-		# Article subclass .setup() shall set these:
-		assert type(self.docid) is str
-		assert type(self.src_url) is str
-		assert type(self.title) is str
-		assert type(self.desc) is str
+		
+		self.src_url = discard_url_params(S(item['url']))
+		self.docid = S(item['docid'])
+		self.title = S(item.get('title',self.docid))
+		self.desc = S(item.get('desc',''))
 		assert type(self.origin) is str
 
 		assert type(item['article_date_py_']) is time.struct_time
@@ -407,7 +460,6 @@ class Article:
 	
 	def is_poisoned(self):
 		p=os.path.exists(self.dstpath+'.skip')
-		p|=self.origin.startswith('news.cctv') and '/PHOA' in self.src_url
 		if p: try_remove(self.dstpath+'.in.gz');
 		return p
 	
@@ -415,18 +467,29 @@ class Article:
 		open(self.dstpath+'.skip','w').close()
 		print('flag as poisoned:', self.dstpath)
 	
-	def write_html(self):
-		html=self.src_html
-
-		de=re.search(r'<meta\s+name="description"\s+content="([^"]+)"\s*/?>', html)
+	def write_html(self, f):
+		de=re.search( \
+r'<meta\s+name="description"\s+content="([^"]+)"\s*/?>', self.src_html)
 		if de is not None:
 			# upgrade to the real description
 			self.desc=de.group(1)
 
 		# dig out the article
-		body = self.scan_article_content(html)
+		body = self.scan_article_content(self.src_html)
 		if body is None:
 			return False
+
+		body = self.rectify(body)
+
+		f.write(S(self.header()))
+		f.write('<div class="main-content">\n')
+		f.write(S(body))
+		f.write('</div>\n')
+		f.write(S(self.footer()))
+		return True
+	
+	def rectify(self, body):
+		""" Cleans up source htmls with regex """
 
 		# some comments contain broken html so delete them first
 		body=re.sub(r'<!--(.*?)-->','',body,flags=re.S)
@@ -443,39 +506,27 @@ class Article:
 		body=re.sub(r'<p>特别声明.*?</p>','',body,flags=re.S)
 		body=re.sub(r'<p class="statement-en".*?</p>','',body,flags=re.S)
 
-		try:
-			# only keep some tags
-			body=re.sub(r'<\s*([^ >]*)\s*([^>]*)>', lambda x: self.filter_tag(x), body, flags=re.M|re.S|re.U)
-		except ImportError:
-			# manual termination
-			return False
+		# filter_tag only keeps some tags (<p>,<span>,<img>, ..)
+		# also converts images (takes forever)
+		body=re.sub(r'<\s*([^ >]*)\s*([^>]*)>', lambda x: self.filter_tag(x), body, flags=re.M|re.S|re.U)
 
 		# not sure whats up with these non-links
-		body=re.sub('<p>https?://[^<]*</p>', \
+		body=re.sub('<p>\s*https?://[^<]*</p>', \
 			lambda x: '<!-- '+x.group(0)+' -->\n', \
-			body, flags=re.M|re.S)
+			body, flags=re.M|re.S|re.U)
 
 		# cheap attempt at minifying it
-		# remove useless links
+		# remove useless links (usually filter_tag removed the href)
 		body=re.sub('<a>(.*?)</a>',lambda x: x.group(1), body, flags=re.S)
 		# empty tags like <span></span> ...
 		body=re.sub('<([a-zA-Z]+)>\s*</\1>','', body, flags=re.M|re.S|re.U)
+		# plz tell me WTF they doing with these spaces. css does margin better
 		body=body.replace('\xe3\x80\x80',' ')
 		body=re.sub('[ \t]+',' ',body)
 		body=re.sub(' *\n+ *','\n',body,flags=re.M)
 		body=re.sub(' *\n+ *','\n',body,flags=re.M)
 
-		print('write article:', self.dstpath)
-
-		s=self.header()
-		s+='<div class="main-content">\n'
-		s+=body
-		s+='</div>\n'
-		s+=self.footer()
-		s=S(s)
-
-		write_html_files(self.dstpath, lambda f,s=s: f.write(s))
-		return True
+		return body
 	
 	def header(self):
 		h=cfg['HEAD_ARTICLE'] \
@@ -504,16 +555,44 @@ class Article:
 		s+='</body>\n</html>\n'
 		return s
 
+"""
+class ArticleXXXXX(Article):
+
+	frontpage_url='https://xxxxx'
+	frontpage_file_prefix='news_xxx'
+	origin=S(u'xxxxxx.com 中文字')
+	
+	def scan_article_content(self, html):
+		if error_happened(html):
+			# may try again sometime
+			return None
+		body=re.search(html).group(x)
+		if is_garbage(body):
+			# ban forever
+			self.mark_poisoned()
+			return None
+		return body
+	
+	def parse_frontpage(html):
+		items=[]
+		for x in re.findall(expr, html):
+			items+=[{
+				'url' : 'http://whatever',
+				'docid' : some_unique_id_string, #maybe get from filename
+				'title' : optional,
+				'desc' : optional,
+
+				# optional performance boost
+				'article_date_py_' : parse_time(x['xx_date_field']),
+			}]
+"""
+
 class Article163(Article):
 
-	def setup(self, item):
-		self.docid=S(item['docid'])
-		self.src_url = discard_url_params(S(item['link']))
-		self.title=S(item.get('title',self.docid))
-		# digest: truncated description
-		self.desc=S(item.get('digest','no description'))
-		self.origin=S(u'3g.163.com 手机网易网')
-	
+	frontpage_url='https://3g.163.com/touch/news/'
+	frontpage_file_prefix='news_163'
+	origin=S(u'3g.163.com 手机网易网')
+
 	def scan_article_content(self, html):
 		m=re.search(r'<article[^>]*>(.*)</article>', html, flags=re.I|re.S)
 		if m is None:
@@ -529,14 +608,37 @@ class Article163(Article):
 		body=m.group(1)
 		return body
 
+	@staticmethod
+	def parse_frontpage(frontpage):
+		items=[]
+		# Fetch single-line json array from front page
+		# difference between topicData and channelData?
+		#topicData = scanJ(frontpage, r'^\s*var\s+topicData\s*=\s*({.*});$')
+		chanData = scanJ(frontpage, r'^\s*var\s+channelData\s*=\s*({.*});$')
+		items+=chanData['listdata']['data']
+		for xx in chanData['topdata']['data']:
+			items+=[xx]
+		items_out = []
+		for it in items:
+			try:
+				items_out += [{
+					'docid' : it['docid'],
+					'url'   : it['link'],
+					'article_date_py_' : parse_date_ymdhms(it['ptime']),
+					'title' : it.get('title',''),
+					'desc'  : it.get('digest',''), #digest: truncated description
+				}]
+			except KeyboardInterrupt as e:
+				raise e
+			except:
+				pass
+		return items_out
+
 class ArticleCCTV(Article):
 
-	def setup(self, item):
-		self.docid=S(item['id'])
-		self.src_url = discard_url_params(S(item['url']))
-		self.title=S(item.get('title',self.docid))
-		self.desc=S(item.get('brief','no description'))
-		self.origin=S(u'news.cctv.com')
+	frontpage_url='http://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/news_1.jsonp'
+	frontpage_file_prefix='news_cctv'
+	origin=S(u'news.cctv.com')
 
 	def scan_article_content(self, html):
 
@@ -563,16 +665,33 @@ class ArticleCCTV(Article):
 			body+='<p class="editor">'+z.group(1)+'</p>'
 		return body
 
-#	def filter_tag(self, x):
-# todo
+	@staticmethod
+	def parse_frontpage(news_1):
+		try:
+			news_json=json.loads(news_1[5:-1], encoding='utf-8')
+		except Exception, err:
+			print('Failed to parse CCTV json')
+			print('json', news_1[:10], '...', news_1[-10:])
+			print('json (inner)', news_1[5:10], '...', news_1[-10:-1])
+			traceback.print_exc()
+			return []
+		items=[]
+		for it in news_json['data']['list']:
+			if '/PHOA' in it['url']:
+				continue
+			items += [{
+				'docid' : it['id'],
+				'url'   : it['url'],
+				'title' : it.get('title',it['id']),
+				'desc'  : it.get('brief',''),
+				'article_date_py_' : parse_date_ymdhms(it['focus_date']),
+			}]
+		return items
 
 class ArticleSina(Article):
-	def setup(self, item):
-		self.src_url = discard_url_params(S(item['link']))
-		self.docid=S(item['docid'])
-		self.title=S(item.get('title',self.docid))
-		self.desc=''
-		self.origin=S(u'news.sina.com.cn 新浪网')
+	frontpage_url='https://news.sina.com.cn/'
+	frontpage_file_prefix='news_sina'
+	origin=S(u'news.sina.com.cn 新浪网')
 
 	def scan_article_content(self, html):
 		b=re.search(r'<div class="article" id="article">(.*?)</div>\s*<!-- 正文 end -->', html, flags=re.S|re.M|re.U)
@@ -586,6 +705,38 @@ class ArticleSina(Article):
 			code+='<h1>'+t.group(1)+'</h1>\n'
 		code+=b.group(1)
 		return code
+
+	@staticmethod
+	def parse_frontpage(mainpage):
+		p=re.search(\
+r'<!-- 新闻中心要闻区 begin -->(.*?)<!-- 新闻中心要闻区 end -->', \
+			mainpage, flags=re.S|re.M)
+		if p is None:
+			# TODO flag as poisoned
+			return []
+		# only want few items and yaowen supposedly has the relevant ones
+		yaowen=p.group(1)
+		items=[]
+		for hl in re.findall( \
+r'href="(https?://news.sina.[^"]+\.[xs]?html)"[^>]*>([^<]{3,300})<', \
+		yaowen, flags=re.S|re.M):
+			assert type(hl) is tuple
+			url=hl[0]
+			title=hl[1]
+			di=re.sub(r'.*/(.*)\.[a-zA-Z]+$',lambda x: x.group(1),url)
+			assert '/' not in di
+			assert '.' not in di
+			try:
+				items+=[{
+					'url' : url,
+					'title' : title,
+					'docid' : di,
+				}]
+			except KeyboardInterrupt as e:
+				raise e
+			except:
+				pass
+		return items
 
 class IndexPage:
 	def __init__(self, seq_id, basename):
@@ -657,7 +808,10 @@ class IndexPage:
 	def sort(self):
 		# newest articles first
 		c=self.article_container()
+		org=c[:]
 		c[:]=sorted(c[:], key=lambda x: self._date_of(x), reverse=True)
+		if c[:] != org:
+			self.modified=True
 
 	def has(self, url):
 		a=self.body.find(".//div[@class='article-ref']//a[@class='local'][@href='"+url+"']")
@@ -671,11 +825,11 @@ class IndexPage:
 		code=\
 '<div class="article-ref">\n' +\
 '<a class="local" href="'+art.idx_url+'">\n' +\
-'<h2 class="title">' + art.title + '</h2>\n' +\
-'<p class="desc">' + art.desc + '</p>\n' +\
+'<h2 class="title">' + htmlspecialchars(art.title) + '</h2>\n' +\
+'<p class="desc">' + htmlspecialchars(art.desc) + '</p>\n' +\
 '</a>\n' +\
 '<span class="date">'+ time.strftime('%Y-%m-%d %H:%M:%S',art.date)+ '</span>\n' +\
-'<a class="origin" href="'+art.src_url+'">Source: '+art.origin+'</a>\n'+\
+'<a class="origin" href="'+art.src_url+'">Source: '+htmlspecialchars(art.origin)+'</a>\n'+\
 '</div>'
 		a=ET.fromstring(code)
 		self.article_container().insert(0,a)
@@ -694,30 +848,25 @@ class IndexPage:
 		f.write('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n')
 		self.et.write(f,encoding='utf-8', xml_declaration=False)
 	
-	def save(self, sqc, r=1):
+	def save(self, out_file, sqc):
 		if self.count() < 1:
 			print('empty index page. not saving')
 			return False
+		self.sort()
 		if (not cfg.get('REBUILD_HTML',False)) \
 		and (not self.modified) \
 		and have_html_files(self.filepath):
 			print("page wasn't modified. not saving")
 			return False
-		self.sort()
 		if self.count()>0: # get_date_str fail if count==0
 			i=self.seq_id
 			d=self.get_date_str()
 			sqc.execute('UPDATE indexes SET date = ? WHERE id = ?', (d,i))
-		if self.prev is None:
-			print(self.filepath+': previous page not set')
-		else:
+		if self.prev is not None:
 			print(self.filepath+': previous page = ', self.prev.filepath)
 			self.prev.set_ref('next',self.sib_url if self.is_full() else '#')
 			self.set_ref('prev',self.prev.sib_url)
-			if r>0:
-				self.prev.save(sqc, r-1)
-		print('Write index page',self.filepath)
-		write_html_files(self.filepath, lambda f,s=self: s.write_xhtml(f))
+		self.write_xhtml(out_file)
 		return True
 
 class Indexer:
@@ -733,6 +882,7 @@ class Indexer:
 		self.sqc.execute( \
 'CREATE TABLE IF NOT EXISTS indexes \
 (id INTEGER PRIMARY KEY, date TEXT, html_path TEXT)')
+		atexit.register(self.done_sq)
 		rows = self.sqc.execute( \
 'SELECT * FROM indexes ORDER BY id DESC LIMIT 2;'\
 			).fetchall()
@@ -748,6 +898,8 @@ class Indexer:
 				print('got previous row', rows[1])
 				self.page.prev=IndexPage(rows[1][0], rows[1][2])
 				self.page.prev.next=self.page
+		# new files are renamed and moved over old files at the end
+		self.renames = []
 	
 	def last_full_page(self):
 		p=self.page
@@ -756,8 +908,38 @@ class Indexer:
 		return p
 	
 	def total_count(self):
-		r=self.sqc.execute('SELECT COUNT(*) FROM articles')
-		return r.fetchone()[0]
+		q=self.sqc.execute('SELECT DISTINCT html_path FROM articles')
+		rows=q.fetchall()
+		if rows is None:
+			return 0
+		n=0
+		for r in rows:
+			p=the_art_dir(r[0])
+			if (os.path.exists(p) or os.path.exists(p+'.gz')) \
+			and not (os.path.exists(p+'.skip')):
+				n+=1
+		return n
+
+	def write_html_files(self, path, func):
+		if (not cfg['SAVE_HTML']) or (not cfg['SAVE_HTML_GZ']):
+			return False
+		io = StringIO()
+		if func(io) is False:
+			io.close()
+			return False
+		content = S(io.getvalue())
+		path_wip = path + '.wip'
+		path_gz = path + '.gz'
+		path_gz_wip = path + '.gz.wip'
+		print('Write:', path+'[.gz].wip')
+		if cfg['SAVE_HTML']:
+			self.renames += [(path_wip, path)]
+			with open(path_wip,'wb') as f: f.write(content);
+		if cfg['SAVE_HTML_GZ']:
+			self.renames += [(path_gz_wip, path_gz)]
+			with gzip.open(path_gz_wip,'wb') as f: f.write(content);
+		io.close()
+		return True
 	
 	def write_master_index_(self, f):
 		f.write(cfg['HEAD_INDEX'])
@@ -802,8 +984,22 @@ class Indexer:
 	
 	def write_master_index(self):
 		p=the_art_dir(cfg['MASTER_INDEX'])
-		print('Write master index',p)
-		write_html_files(p, lambda f: self.write_master_index_(f))
+		return \
+			self.write_html_files(p, lambda f: self.write_master_index_(f))
+	
+	def write_index_page(self):
+		p1=self.page
+		ok=self.write_html_files(p1.filepath, lambda f: p1.save(f, self.sqc))
+		if ok:
+			# update previous page because the navbutton needs a new link
+			p0=p1.prev
+			if p0 is not None:
+				self.write_html_files(p0.filepath,lambda f: p0.save(f,self.sqc))
+		return ok
+	
+	def write_article(self, art):
+		return \
+			self.write_html_files(art.dstpath, lambda f: art.write_html(f))
 	
 	def new_page(self):
 		i=self.next_id
@@ -831,22 +1027,35 @@ class Indexer:
 		))
 		self.sq.commit()
 		if self.page.count() >= cfg['INDEX_BATCH']:
-			self.page.save(self.sqc)
+			self.write_index_page()
 			self.new_page()
 		self.page.store(art)
-
-	def done(self):
-		self.page.save(self.sqc)
-		self.sq.commit()
-		self.write_master_index()
+	
+	def done_sq(self):
 		self.sqc.close()
 		self.sq.commit()
+		self.sq.close()
+	
+	def done(self):
+		self.write_index_page()
+		self.sq.commit()
+		self.write_master_index()
+		print('*** Moving new files over old files')
+		for old,new in self.renames:
+			if not os.path.exists(old):
+				print('Missing output file:', old)
+				continue
+			bak=new+'.bak'
+			if os.path.exists(bak): os.remove(bak) ;
+			if os.path.exists(new): os.rename(new,bak) ;
+			os.rename(old,new)
 	
 	def article_back_ref(self):
 		return '../' + self.page.sib_url
 
 def get_mainpages(url, cache_prefix, args):
 	if cfg.get('REBUILD_HTML',False):
+		# If rebuilding, skip download. Read all available old cached files
 		d_in=the_art_dir('in')
 		for src_bn in os.listdir(d_in):
 			src_path=os.path.join(d_in, src_bn)
@@ -865,6 +1074,7 @@ def get_mainpages(url, cache_prefix, args):
 				yield frontpage
 			# else: some other news source deals with the file
 	else:
+		# Update. Download the frontpage once and store to file
 		p=the_art_dir('in/'+time.strftime( \
 			cache_prefix + '-%Y-%m-%d-%H.html'))
 		frontpage = cached_gz(p, lambda u=url:GET(u))
@@ -874,96 +1084,6 @@ def get_mainpages(url, cache_prefix, args):
 def parse_date_ymdhms(x):
 	t = x.encode('utf-8') if type(x) is unicode else str(x)
 	return time.strptime(t,'%Y-%m-%d %H:%M:%S')
-
-def pull_163(args):
-	url='https://3g.163.com/touch/news/'
-	prefix='news_163'
-	items=[]
-	for frontpage in get_mainpages(url, prefix, args):
-		# Fetch single-line json array from front page
-		# difference between topicData and channelData?
-		#topicData = scanJ(frontpage, r'^\s*var\s+topicData\s*=\s*({.*});$')
-		chanData = scanJ(frontpage, r'^\s*var\s+channelData\s*=\s*({.*});$')
-		items+=chanData['listdata']['data']
-		for xx in chanData['topdata']['data']:
-			assert type(xx) is dict
-			assert 'ptime' in xx
-			items+=[xx]
-		for it in items:
-			it['article_class_py_'] = Article163
-			it['article_date_py_'] = parse_date_ymdhms(it['ptime'])
-	return items
-
-def pull_cctv(args):
-	url='http://news.cctv.com/2019/07/gaiban/cmsdatainterface/page/news_1.jsonp'
-	prefix='news_cctv'
-	items=[]
-	for news_1 in get_mainpages(url, prefix, args):
-		try:
-			news_json=json.loads(news_1[5:-1], encoding='utf-8')
-		except Exception, err:
-			print('Failed to parse CCTV json')
-			print('json', news_1[:10], '...', news_1[-10:])
-			print('json (inner)', news_1[5:10], '...', news_1[-10:-1])
-			traceback.print_exc()
-			sys.exit(1)
-		for it in news_json['data']['list']:
-			it['article_class_py_'] = ArticleCCTV
-			it['article_date_py_'] = parse_date_ymdhms(it['focus_date'])
-			items += [it]
-	return items
-
-def pull_sina(args):
-	url='https://news.sina.com.cn/'
-	prefix='news_sina'
-	items=[]
-	# no timestamps on the frontpage, must http HEAD. cache responses to head.db for quicker rebuild
-	sq = sqlite3.connect(the_art_dir('head.db'))
-	sqc = sq.cursor()
-	sqc.execute('CREATE TABLE IF NOT EXISTS head (url TEXT UNIQUE, date TEXT)')
-	try:
-		for mainpage in get_mainpages(url, prefix, args):
-			p=re.search(r'<!-- 新闻中心要闻区 begin -->(.*?)<!-- 新闻中心要闻区 end -->', mainpage, flags=re.S|re.M)
-			if p is None:
-				# TODO flag as poisoned
-				continue
-			# only want few items and yaowen supposedly has the relevant ones
-			yaowen=p.group(1)
-			for hl in re.findall( \
-		r'href="(https?://news.sina.[^"]+\.[xs]?html)"[^>]*>([^<]{3,300})<', \
-			yaowen, flags=re.S|re.M):
-				assert type(hl) is tuple
-				url=hl[0]
-				title=hl[1]
-				di=re.sub(r'.*/(.*)\.[a-zA-Z]+$',lambda x: x.group(1),url)
-				assert '/' not in di
-				assert '.' not in di
-				row=sqc.execute('SELECT date FROM head WHERE url = ?',(url,)).fetchone()
-				try:
-					if row is not None and len(row)>0:
-						d=row[0]
-					else:
-						d=HEAD(url)['Date']
-						sqc.execute('INSERT INTO head VALUES (?,?)',(url,d))
-						be_nice()
-					ts=time.strptime(d, '%a, %d %b %Y %H:%M:%S GMT')
-				except KeyboardInterrupt as e:
-					raise e
-				except:
-					traceback.print_exc()
-					print('Failed to query', url)
-					continue
-				items+=[{
-					'article_class_py_' : ArticleSina,
-					'article_date_py_' : ts,
-					'link' : url,
-					'title' : title,
-					'docid' : di,
-				}]
-	finally:
-		sqc.close()
-		sq.commit()
-	return items
 
 def n_most_recent(items, n):
 	items = sorted(items, key=lambda it: it['article_date_py_'])
@@ -983,7 +1103,6 @@ def main():
 	ap.add_argument('-R', '--rebuild-images', action='store_true',help="Rebuild HTML and image files")
 	ap.add_argument('-I', '--rebuild-index-only', action='store_true',help="Skip rebuilding articles")
 	ap.add_argument('-M', '--rebuild-mainpage', action='store_true',help='Rebuild main page and quit')
-	ap.add_argument('-n', '--no-fetch', action='store_true',help="Just rebuild mainpage without downloading anything")
 	args=ap.parse_args()
 
 	print('\nNews article archiver & reformatter started')
@@ -1008,8 +1127,7 @@ def main():
 		try:
 			with open(cfg['PID_FILE'],'w') as f:
 				f.write(str(os.getpid()))
-		except KeyboardInterrupt:
-			return
+			atexit.register(lambda: try_remove(cfg['PID_FILE']))
 		except:
 			print('!! Failed to write', cfg['PID_FILE'])
 			del cfg['PID_FILE']
@@ -1024,45 +1142,58 @@ def main():
 	items = []
 
 	idx = Indexer()
-	sq = idx.sq
 	if args.rebuild_mainpage:
 		idx.write_master_index()
 		return
+	
+	sources = [
+		('GET_163', Article163),
+		('GET_CCTV', ArticleCCTV),
+		('GET_SINA', ArticleSina),
+	]
+	for enb_key, cl in sources:
+		if not cfg.get(enb_key,True):
+			continue
+		for page_content in get_mainpages(\
+		cl.frontpage_url, cl.frontpage_file_prefix, args):
+			try:
+				tmp = cl.parse_frontpage(page_content)
+				if tmp is None:
+					continue
+				for it in tmp:
+					assert 'url' in it
+					assert 'docid' in it
+					it['article_class_py_'] = cl
+					if 'article_date_py_' not in it:
+						it['article_date_py_'] = HEAD_date(it['url'])
+				tmp = n_most_recent(tmp, int(cfg.get('MAX_DL',50)))
+				items += tmp
+			except AssertionError as e:
+				traceback.print_exc()
+				print('class', str(cl))
+				return
+			except KeyboardInterrupt:
+				return
+			except ImportError:
+				return
+			except:
+				traceback.print_exc()
+				print('Failed to get source', cl.origin)
 
-	if not args.no_fetch:
-		n=int(cfg.get('MAX_DL',50))
-		if cfg['GET_163']:
-			print('Fetch 163...')
-			items += n_most_recent(pull_163(args), n)
-		if cfg['GET_CCTV']:
-			print('Fetch CCTV...')
-			items += n_most_recent(pull_cctv(args), n)
-		if cfg['GET_SINA']:
-			print('Fetch sina...')
-			items += n_most_recent(pull_sina(args), n)
-
-	rebuild_index_only=\
-		cfg.get('REBUILD_HTML',False) \
-		and args.rebuild_index_only
-
-	revisit_html=\
-		args.rebuild_html or args.rebuild_images
+	rebuild_index_only = args.rebuild_index_only
+	revisit_html = args.rebuild_html or args.rebuild_images
 	
 	items = n_most_recent(items, -1)
 
-	print('Fetching articles... (%d)' % len(items))
+	print('Processing articles... (%d)' % len(items))
 	for item in items:
-		assert type(item) is dict
-		assert 'article_class_py_' in item
-		assert 'article_date_py_' in item
-
 		cl_init=item['article_class_py_']
 		art=cl_init(item)
 
 		if len(args.articles)>0:
 			# if specific paths were listed in command line
 			# check if article matches any. skip otherwise
-			tmp=discard_url_params(art.src_url).lower()
+			tmp=art.src_url.lower()
 			ok=False
 			for a in args.articles:
 				if tmp.endswith(a.lower()):
@@ -1071,32 +1202,36 @@ def main():
 			if not ok:
 				continue
 
+		# n_most_recent sets __skipDL for items that should be ignored
+		# so after changing MAX_DL:
+		# items that were already downloaded can be rebuilt
+		# but new extra items won't be downloaded.
 		if item.get('__skipDL',False) and not art.have_src_page():
 			continue
 
 		print(art.src_url)
 
 		if check_ext(art.src_url, ('.shtml', '.html','.xhtml','.cgi','.php')):
-			if should_terminate():
-				break
 			if (revisit_html or not art.exists()) \
 			and not art.is_poisoned():
 				print('Process:',art.src_url)
-				while True:
-					try:
-						art.fetch()
-					except KeyboardInterrupt as e:
-						raise e
-					except:
-						print('Failed to GET')
-						break
+				try:
+					check_kill_switch()
+					art.fetch()
 					art.back_url = idx.article_back_ref()
-					if rebuild_index_only or art.write_html():
+					if rebuild_index_only or idx.write_article(art):
 						idx.put(art)
 					be_nice()
+				except KeyboardInterrupt as e:
+					raise e
+				except ImportError:
 					break
+				except:
+					traceback.print_exc()
 
-		if should_terminate():
+		try:
+			check_kill_switch()
+		except ImportError:
 			break
 	
 	idx.done()
@@ -1113,7 +1248,8 @@ def main():
 if __name__=="__main__":
 	try:
 		main()
-	finally:
-		if 'PID_FILE' in cfg:
-			try_remove(cfg['PID_FILE'])
+	except KeyboardInterrupt:
+		pass
+	except ImportError:
+		print('Aborted because PID file was removed')
 
