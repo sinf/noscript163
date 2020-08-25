@@ -18,11 +18,36 @@ $c-art-body: white;
 //$c-bg: #2C468B;
 $c-bg: #324A8B;
 
+/*
+-- general classes
+div.main-content: article listing, article content, or frontpage content
+
+-- article
+body#art_body
+a.zh-ret : return link
+a.article-src : source link
+
+-- index page
+body#subIdx
+a.prev : link to previous page
+a.next : link to previous page
+div.article-ref { a.local, h2.title, p.desc, span.date, a.origin }
+
+-- frontpage
+body#mainIdx
+a.recent.bling : Enter button
+div.introd : About
+div.all : Archive
+
+*/
+
 * {
+	// set defaults
 	box-sizing: border-box;
 	font-family: Arial;
 	padding: 0;
 	margin: 0;
+	text-align: left;
 }
 
 html {
@@ -35,6 +60,27 @@ html {
 	background: linear-gradient(180deg, $c-bg 0%, darken($c-bg,15%) 100%);
 	background-size: 100%;
 	background-attachment: fixed;
+}
+
+body {
+	text-align: center; // for main-content
+	>* {
+		width: 60rem;
+		max-width: 100%;
+		display: inline-block;
+	}
+}
+.main-content {
+	padding: 0.5em 0.5em 0 0.5em;
+}
+
+h1,h2,h3,h4,h5,h6 {
+	margin: 0.3em 0.1em 0.1em 0;
+}
+
+p {
+	display: block;
+	margin: 0 0 0.5em 0;
 }
 
 nav {
@@ -58,7 +104,6 @@ nav {
 	margin: 0 auto 1em auto;
 }
 
-
 a, a:visited {
 	color: $c-url;
 	border: 1px dotted $c-url;
@@ -76,8 +121,7 @@ a, a:visited {
 
 // articles in index
 .article-ref {
-	display: block;
-	text-align: left;
+	//display: block;
 	border-bottom: 2px dotted $c;
 	padding-bottom: 0.5em;
 	margin-bottom: 1em;
@@ -88,7 +132,6 @@ a, a:visited {
 	a.local {
 		text-decoration: none;
 		border: none;
-
 		.title {
 			color: $c-art-title;
 		}
@@ -105,13 +148,12 @@ a, a:visited {
 }
 
 // reformatted articles
-body>.main-content, article {
-	margin: 0 0.5em 0 0.5em;
+#art_body .main-content {
 	color: $c-art-body;
-	.title, h1 {
+	.title, h1, h2, h3, h4, h5, h6 {
 		color: $c-art-title;
 	}
-	strong, b {
+	strong, b, em {
 		font-style: bold;
 	}
 	.info {
@@ -131,48 +173,40 @@ body>.main-content, article {
 		border-radius: 0.2em;
 		margin: 0.5em;
 	}
-	p {
+	p, div {
 		display: block;
 		margin: 0 0 0.5em 0;
 	}
-}
 
-.otitle_editor, p.editor, p.show_author {
-	margin-top: 0.75em;
-	color: $c-text-whatevs;
-	.otitle {
-		// original title
+	.otitle_editor, p.editor, p.show_author {
+		margin-top: 0.75em;
+		color: $c-text-whatevs;
+		.otitle {
+			// original title
+		}
+		.editor {
+		}
 	}
-	.editor {
-	}
-}
 
-// hack to hide some weird extra title
-div.article-content + h2, .editor + h2, .otitle + h2 {
-	display: none;
+	// hack to hide some weird extra title
+	div.article-content + h2, .editor + h2, .otitle + h2 {
+		display: none;
+	}
 }
 
 // toplevel master index
 #mainIdx {
-	padding: 0.5em;
-	text-align: center;
-	>* {
-		width: 60rem;
-		max-width: 100%;
+	div {
+		margin-bottom: 0.5em;
 	}
-	h1,h2,h3 {
-		text-align: left;
-	}
+
 	.introd {
-		text-align: left;
 		display: inline-block;
-		margin: 0.5em 1em 0.5em 0;
+		margin: 0em 1em 0.5em 0;
 		a {
 			// github link
 			display: inline-block;
 			margin: 1em;
-		}
-		p {
 		}
 		div:lang(en) {
 			font-size: 90.91%;
@@ -181,10 +215,11 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 
 	// large Enter button
 	.recent {
+		text-align: center;
 		display: inline-block;
 		position: relative;
-		margin: 1rem 0 0.5rem 0;
-		padding: .8rem .2rem .8rem .2rem;
+		margin: 1rem 1em 0.25rem 1em;
+		padding: .8rem .5rem .8rem .5rem;
 		background-color: darken($c-bg, 20%);
 		font-size: 160%;
 		text-shadow: 0.1em 0.1em 0.3em black;
@@ -193,6 +228,7 @@ div.article-content + h2, .editor + h2, .otitle + h2 {
 		border: none;
 		border-radius: 0.5em;
 		width: 20em;
+		max-width: 80%;
 		&:hover {
 			text-shadow: 0 0 0.3em white;
 			top: 0.05em;

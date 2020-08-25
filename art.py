@@ -279,12 +279,12 @@ class ImgError(Exception):
 class Img:
 	def __init__(self, dstdir, src):
 		check_kill_switch()
-		if 'javascript:' in src:
+		if 'javascript:' in src.lower():
 			raise ImgError('javascript img hack: '+src)
 		bn=os.path.basename(src)
 		no_suf=re.sub(r'(\..{1,5})$','',bn)
 		suf=re.search(r'\..*$',bn)
-		if '.' in bn and check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
+		if '.' in bn and not check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
 			raise ImgError('unknown suffix: '+bn[-4:])
 		self.path_org=os.path.join(dstdir, 'img0', bn)
 		self.path_webp=os.path.join(dstdir, 'img', no_suf+'.webp')
@@ -293,6 +293,8 @@ class Img:
 		self.url_webp='img/'+no_suf+'.webp'
 		self.url_jpg='img/'+no_suf+'.jpg'
 		rebuild=cfg.get('REBUILD_IMAGES',False)
+		if self.is_poisoned():
+			raise ImgError('poisoned')
 		if 'REBUILD_AFTER' in cfg and os.path.exists(self.path_jpg):
 			t0=cfg['REBUILD_AFTER']
 			if time.localtime(os.stat(self.path_jpg).st_mtime) > t0:
@@ -310,6 +312,17 @@ class Img:
 			if shell_cmd([cfg['CONVERT'],self.path_org+"[0]"] +\
 "-fuzz 1% -trim +repage -resize 500000@> -quality 40 -sampling-factor 4:2:0".split() + [self.path_jpg]) == 0:
 				# convert success
+
+				# but check for 1x1 image
+				try:
+					if (subprocess.check_output([cfg['CONVERT'],'-format','%wx%h',
+						self.path_jpg, 'info:']).strip() == '1x1'):
+							print('1x1 image')
+							self.mark_poisoned()
+							raise ImgError('poisoned')
+				except CalledProcessError:
+					pass
+
 				if not cfg['SAVE_IMG_SRC']:
 					try_remove(self.path_org)
 			else:
@@ -317,6 +330,12 @@ class Img:
 				try_remove(self.path_jpg)
 				raise ImgError('FAILED to convert image: '+src)
 		# webp is nice. but HDD space cost $$ and don't want duplicate images
+	
+	def is_poisoned(self):
+		return os.path.exists(self.path_jpg+'.skip')
+	
+	def mark_poisoned(self):
+		open(self.path_jpg+'.skip','w').close()
 	
 	def tag(self, alt='', cl=''):
 		code='\n<!-- source: '+self.url_src+'-->\n'
@@ -545,7 +564,7 @@ r'<meta\s+name="description"\s+content="([^"]+)"\s*/?>', self.src_html)
 		h+='</a>\n'
 		if org:
 			xx=u'Source 原文'.encode('utf-8')
-			h+='<a href="'+self.src_url+'">'+xx+'</a>\n'
+			h+='<a class="article-src" href="'+self.src_url+'">'+xx+'</a>\n'
 		h+='</nav>'
 		return h
 
@@ -927,6 +946,7 @@ class Indexer:
 			io.close()
 			return False
 		content = S(io.getvalue())
+		io.close()
 		path_wip = path + '.wip'
 		path_gz = path + '.gz'
 		path_gz_wip = path + '.gz.wip'
@@ -937,7 +957,6 @@ class Indexer:
 		if cfg['SAVE_HTML_GZ']:
 			self.renames += [(path_gz_wip, path_gz)]
 			with gzip.open(path_gz_wip,'wb') as f: f.write(content);
-		io.close()
 		return True
 	
 	def write_master_index_(self, f):
@@ -950,6 +969,7 @@ class Indexer:
 ''')
 		f.write('<a class="recent bling" href="'\
 +cfg['LAST_PAGE_ALIAS']+'">&gt;&gt;&gt; Enter &lt;&lt;&lt;</a><br/>\n')
+		f.write('<div class="main-content">')
 		f.write(u'''<div class="introd"><div lang="en">
 <h1>About</h1>
 <p>Hey. I study chinese. I read their news. But chinese websites and apps put a heavy burden on phone's battery. That's why I made this service. Here you can read chinese news served fast from Europe. No javascript, no ads, just news.</p>
@@ -981,7 +1001,7 @@ class Indexer:
 			f.write('</div>')
 		else:
 			f.write('No articles yet\n')
-		f.write('</div></body></html>\n')
+		f.write('</div></div></body></html>\n')
 	
 	def write_master_index(self):
 		p=the_art_dir(cfg['MASTER_INDEX'])
@@ -1043,13 +1063,12 @@ class Indexer:
 		self.write_master_index()
 		print('*** Moving new files over old files')
 		for old,new in self.renames:
-			if not os.path.exists(old):
-				print('Missing output file:', old)
-				continue
-			bak=new+'.bak'
-			if os.path.exists(bak): os.remove(bak) ;
-			if os.path.exists(new): os.rename(new,bak) ;
-			os.rename(old,new)
+			if os.path.exists(old):
+				bak=new+'.bak'
+				if os.path.exists(bak): os.remove(bak) ;
+				if os.path.exists(new): os.rename(new,bak) ;
+				os.rename(old,new)
+				print(old,'=>',new)
 	
 	def article_back_ref(self):
 		return '../' + self.page.sib_url
