@@ -253,6 +253,10 @@ def discard_url_params(url):
 	i=url.find('?')
 	return url[:i] if i>=0 else url
 
+def suffix_split(path):
+	i=path.rfind('.')
+	return (path,'') if i<0 else (path[:i],path[i:])
+
 def check_ext(url,valid):
 	u=discard_url_params(url).lower()
 	for ext in valid:
@@ -281,6 +285,9 @@ class Img:
 		check_kill_switch()
 		if 'javascript:' in src.lower():
 			raise ImgError('javascript img hack: '+src)
+		if 'ERROR FILE SIZE TOO BIG' in src:
+			# cctv put an error message in URL. WHY!?
+			raise ImgError('this... '+src)
 		bn=os.path.basename(src)
 		no_suf=re.sub(r'(\..{1,5})$','',bn)
 		suf=re.search(r'\..*$',bn)
@@ -1124,6 +1131,7 @@ def main():
 	ap.add_argument('-A', '--rebuild-after', nargs=1, type=lambda s: time.strptime(s, '%Y-%m-%d/%H:%M'), default=None)
 	ap.add_argument('-I', '--rebuild-index-only', action='store_true',help="Skip rebuilding articles")
 	ap.add_argument('-M', '--rebuild-mainpage', action='store_true',help='Rebuild main page and quit')
+	ap.add_argument('-C', '--check-images', action='store_true')
 	args=ap.parse_args()
 
 	print('\nNews article archiver & reformatter started')
@@ -1204,6 +1212,10 @@ def main():
 
 	rebuild_index_only = args.rebuild_index_only
 	revisit_html = args.rebuild_html or args.rebuild_images
+
+	article_whitelist=None
+	if len(args.articles)>0:
+		article_whitelist=set(x.lower() for x in args.articles)
 	
 	items = n_most_recent(items, -1)
 
@@ -1212,16 +1224,11 @@ def main():
 		cl_init=item['article_class_py_']
 		art=cl_init(item)
 
-		if len(args.articles)>0:
+		if article_whitelist is not None:
 			# if specific paths were listed in command line
 			# check if article matches any. skip otherwise
-			tmp=art.src_url.lower()
-			ok=False
-			for a in args.articles:
-				if tmp.endswith(a.lower()):
-					ok=True
-					break
-			if not ok:
+			no_suf_bn=suffix_split(art.src_url.lower().split('/')[-1])[0]
+			if no_suf_bn not in article_whitelist:
 				continue
 
 		# n_most_recent sets __skipDL for items that should be ignored
@@ -1241,8 +1248,12 @@ def main():
 					check_kill_switch()
 					art.fetch()
 					art.back_url = idx.article_back_ref()
-					if rebuild_index_only or idx.write_article(art):
-						idx.put(art)
+					if args.check_images is True:
+						with open('/dev/null','wb') as f:
+							art.write_html(f)
+					else:
+						if rebuild_index_only or idx.write_article(art):
+							idx.put(art)
 					be_nice()
 				except KeyboardInterrupt as e:
 					raise e
