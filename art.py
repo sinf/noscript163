@@ -82,7 +82,6 @@ cfg={
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
 <meta name="keywords" content="china,news,chinese,cctv,新闻,中国,article,read,recent,learn,study"/>
-<meta name="robots" content="index,follow"/>
 <meta name="author" content="ArhoM"/>
 <style type="text/css">html{background-color:#324A8B;color:white;}</style>
 <link rel="stylesheet" type="text/css" href="@@zh-articles.css"/>
@@ -284,7 +283,8 @@ class Img:
 			raise ImgError('javascript img hack: '+src)
 		bn=os.path.basename(src)
 		no_suf=re.sub(r'(\..{1,5})$','',bn)
-		if not check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
+		suf=re.search(r'\..*$',bn)
+		if '.' in bn and check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
 			raise ImgError('unknown suffix: '+bn[-4:])
 		self.path_org=os.path.join(dstdir, 'img0', bn)
 		self.path_webp=os.path.join(dstdir, 'img', no_suf+'.webp')
@@ -531,6 +531,7 @@ r'<meta\s+name="description"\s+content="([^"]+)"\s*/?>', self.src_html)
 + make_head_tag('../') \
 + '<title>' + self.title +'</title>\n' \
 + '<meta name="description" content="' + self.desc + '"/>\n' \
++ '<meta name="robots" content="index,nofollow,noimageindex"/>\n' \
 + '</head>\n<body id="art_body">\n'
 		h+=self.make_back_url()
 		return h
@@ -748,6 +749,7 @@ class IndexPage:
 		head_code=cfg['XHTML_HEADER'] + make_head_tag() + \
 '<title>' + title + '''</title>
 <meta name="description" content="News, no scripts"/>
+<meta name="robots" content="index,follow"/>
 </head><body id="subIdx">
 ''' + self.nav() + '''
 <div class="main-content"></div>
@@ -943,6 +945,7 @@ class Indexer:
 		f.write(make_head_tag())
 		f.write('''<title>News, no scripts</title>
 <meta name="description" content="News, no scripts"/>
+<meta name="robots" content="index,follow"/>
 </head><body id="mainIdx">
 ''')
 		f.write('<a class="recent bling" href="'\
