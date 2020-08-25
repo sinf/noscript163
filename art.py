@@ -300,6 +300,10 @@ class Img:
 		self.url_webp='img/'+no_suf+'.webp'
 		self.url_jpg='img/'+no_suf+'.jpg'
 		rebuild=cfg.get('REBUILD_IMAGES',False)
+		if 'REBUILD_AFTER' in cfg and os.path.exists(self.path_jpg):
+			t0=cfg['REBUILD_AFTER']
+			if time.localtime(os.stat(self.path_jpg).st_mtime) > t0:
+				rebuild=True
 		if not os.path.exists(self.path_jpg) or rebuild:
 			make_dir(os.path.dirname(self.path_jpg))
 			try:
@@ -1101,6 +1105,7 @@ def main():
 	ap.add_argument('-c', '--conf', nargs=1, default=[None],help="Load JSON config from this filepath")
 	ap.add_argument('-r', '--rebuild-html', action='store_true',help="Rebuild HTML files")
 	ap.add_argument('-R', '--rebuild-images', action='store_true',help="Rebuild HTML and image files")
+	ap.add_argument('-A', '--rebuild-after', nargs=1, type=lambda s: time.strptime(s, '%Y-%m-%d/%H:%M'), default=None)
 	ap.add_argument('-I', '--rebuild-index-only', action='store_true',help="Skip rebuilding articles")
 	ap.add_argument('-M', '--rebuild-mainpage', action='store_true',help='Rebuild main page and quit')
 	args=ap.parse_args()
@@ -1116,6 +1121,7 @@ def main():
 
 	if args.rebuild_html: cfg['REBUILD_HTML']=True;
 	if args.rebuild_images: cfg['REBUILD_IMAGES']=True;
+	if args.rebuild_after: cfg['REBUILD_AFTER']=args.rebuild_after
 
 	T_START=time.time()
 	print('My PID is', os.getpid())
