@@ -199,6 +199,12 @@ a, a:visited {
 	div {
 		margin-bottom: 0.5em;
 	}
+	p {
+		color: $c-art-desc;
+	}
+	h1,h2,h3 {
+		color: $c-text;
+	}
 
 	.introd {
 		display: inline-block;
@@ -224,7 +230,7 @@ a, a:visited {
 		font-size: 160%;
 		text-shadow: 0.1em 0.1em 0.3em black;
 //		border: 0.1em solid $c-text;
-		color: white;
+		color: $c-text;
 		border: none;
 		border-radius: 0.5em;
 		width: 20em;

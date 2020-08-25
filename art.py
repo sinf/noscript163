@@ -83,7 +83,7 @@ cfg={
 <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
 <meta name="keywords" content="china,news,chinese,cctv,新闻,中国,article,read,recent,learn,study"/>
 <meta name="author" content="ArhoM"/>
-<style type="text/css">html{background-color:#324A8B;color:white;}</style>
+<style type="text/css">html{background-color:#324A8B;color:white;}a,a:visited{color:white;}</style>
 <link rel="stylesheet" type="text/css" href="@@zh-articles.css"/>
 <link rel="icon" href="@@favicon.gif"/>
 ''',
@@ -904,7 +904,7 @@ class Indexer:
 		self.sq = sqlite3.connect(sq_path)
 		self.sq.text_factory = str #utf hack
 		self.sqc = self.sq.cursor()
-		if cfg['REBUILD_HTML']:
+		if cfg.get('REBUILD_HTML',False):
 			self.sqc.execute('DROP TABLE IF EXISTS articles')
 			self.sqc.execute('DROP TABLE IF EXISTS indexes')
 		self.sqc.execute( \
