@@ -23,6 +23,7 @@ WEB_ROOT/ARTICLES/zh-news.db          sqlite3 for searching stuff
 
 Temporary files
 WEB_ROOT/ARTICLES/YYYY-MM/img0/*      articles' original large images
+WEB_ROOT/ARTICLES/head.db             HEAD requests cached here
 *.in , *.in.gz                        original articles pages
 *.skip
 
@@ -68,12 +69,14 @@ cfg={
 	'CONVERT':'convert',
 	'CPULIMIT':'cpulimit',
 
-# All index documents include this in their <head>
-# we control the content and can use XHTML for better parsing performance
-	'HEAD_INDEX': u'''<?xml version="1.0" encoding="UTF-8"?>
+	'XHTML_HEADER': '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh" lang="zh">
-<head>
+''',
+
+	'HTML_HEADER':'<!DOCTYPE html>\n<html lang="zh">\n',
+
+	'HEAD_CODE' : u'''<head>
 <meta charset="UTF-8"/>
 <meta http-equiv="Content-Type" content="application/xhtml+xml;charset=UTF-8"/>
 <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
@@ -82,22 +85,9 @@ cfg={
 <meta name="robots" content="index,follow"/>
 <meta name="author" content="ArhoM"/>
 <style type="text/css">html{background-color:#324A8B;color:white;}</style>
-<link rel="stylesheet" type="text/css" href="zh-articles.css"/>
-<link rel="icon" href="favicon.gif"/>
-'''.encode('utf-8'),
-
-# All article documents include this. Not using XHTML in case the articles have sloppy and broken code
-	'HEAD_ARTICLE': u'''<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="UTF-8"/>
-<meta http-equiv="Content-Type" content="application/html;charset=UTF-8"/>
-<meta http-equiv="X-UA-Compatible" content="IE=edge"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"/>
-<style type="text/css">html{background-color:#324A8B;color:white;}</style>
-<link rel="stylesheet" type="text/css" href="../zh-articles.css"/>
-<link rel="icon" href="../favicon.gif"/>
-'''.encode('utf-8'),
+<link rel="stylesheet" type="text/css" href="@@zh-articles.css"/>
+<link rel="icon" href="@@favicon.gif"/>
+''',
 
 	'GET_163':True,
 	'GET_CCTV':True,
@@ -124,6 +114,9 @@ import xml.etree.ElementTree as ET
 import argparse
 import gzip
 import atexit
+
+def make_head_tag(url_prefix=''):
+	return cfg['HEAD_CODE'].replace('@@',url_prefix).encode('utf-8')
 
 def check_kill_switch():
 	# to kill the program (when started by another user) use PID_FILE and delete it
@@ -313,15 +306,16 @@ class Img:
 			except ImportError as e:
 				raise e
 			except:
-				raise ImgError('FAILED to get image:', src)
+				raise ImgError('FAILED to get image: '+src)
 			if shell_cmd([cfg['CONVERT'],self.path_org+"[0]"] +\
 "-fuzz 1% -trim +repage -resize 500000@> -quality 40 -sampling-factor 4:2:0".split() + [self.path_jpg]) == 0:
 				# convert success
 				if not cfg['SAVE_IMG_SRC']:
 					try_remove(self.path_org)
 			else:
-				# remove potentially broken output file
+				# remove potentially broken output file. but keep original
 				try_remove(self.path_jpg)
+				raise ImgError('FAILED to convert image: '+src)
 		# webp is nice. but HDD space cost $$ and don't want duplicate images
 	
 	def tag(self, alt='', cl=''):
@@ -533,10 +527,10 @@ r'<meta\s+name="description"\s+content="([^"]+)"\s*/?>', self.src_html)
 		return body
 	
 	def header(self):
-		h=cfg['HEAD_ARTICLE'] \
+		h=cfg['HTML_HEADER'] \
++ make_head_tag('../') \
 + '<title>' + self.title +'</title>\n' \
-+ '<meta name="description" content="' \
-+ self.desc + '"/>\n' \
++ '<meta name="description" content="' + self.desc + '"/>\n' \
 + '</head>\n<body id="art_body">\n'
 		h+=self.make_back_url()
 		return h
@@ -751,8 +745,8 @@ class IndexPage:
 		self.next=None
 		self.prev=None
 		self.ns='{http://www.w3.org/1999/xhtml}'
-		head_code=cfg['HEAD_INDEX']+\
-	'<title>' + title + '''</title>
+		head_code=cfg['XHTML_HEADER'] + make_head_tag() + \
+'<title>' + title + '''</title>
 <meta name="description" content="News, no scripts"/>
 </head><body id="subIdx">
 ''' + self.nav() + '''
@@ -848,8 +842,7 @@ class IndexPage:
 				self.modified=True
 	
 	def write_xhtml(self, f):
-		f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-		f.write('<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n')
+		f.write('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n')
 		self.et.write(f,encoding='utf-8', xml_declaration=False)
 	
 	def save(self, out_file, sqc):
@@ -946,7 +939,8 @@ class Indexer:
 		return True
 	
 	def write_master_index_(self, f):
-		f.write(cfg['HEAD_INDEX'])
+		f.write(cfg['XHTML_HEADER'])
+		f.write(make_head_tag())
 		f.write('''<title>News, no scripts</title>
 <meta name="description" content="News, no scripts"/>
 </head><body id="mainIdx">
