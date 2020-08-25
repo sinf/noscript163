@@ -100,7 +100,8 @@ cfg={
 }
 
 import traceback
-import urllib2
+from urllib2 import Request, urlopen, URLError
+from httplib import InvalidURL
 from cStringIO import StringIO
 import subprocess
 import re
@@ -154,8 +155,8 @@ def the_art_dir(path):
 def GET(url):
 	print('GET', url)
 	agent=cfg['USER_AGENT']
-	req=urllib2.Request(url,headers={'User-Agent':agent})
-	r = urllib2.urlopen(req)
+	req=Request(url,headers={'User-Agent':agent})
+	r = urlopen(req)
 	html=r.read()
 	r.close()
 	return html
@@ -163,9 +164,9 @@ def GET(url):
 def HEAD(url):
 	print('HEAD', url)
 	agent=cfg['USER_AGENT']
-	req=urllib2.Request(url,headers={'User-Agent':agent})
+	req=Request(url,headers={'User-Agent':agent})
 	req.get_method = lambda: 'HEAD'
-	r = urllib2.urlopen(req)
+	r = urlopen(req)
 	nfo = r.info()
 	r.close()
 	return nfo
@@ -285,7 +286,7 @@ class Img:
 		check_kill_switch()
 		if 'javascript:' in src.lower():
 			raise ImgError('javascript img hack: '+src)
-		if 'ERROR FILE SIZE TOO BIG' in src:
+		if 'ERROR' in src:
 			# cctv put an error message in URL. WHY!?
 			raise ImgError('this... '+src)
 		bn=os.path.basename(src)
@@ -314,7 +315,7 @@ class Img:
 				raise e
 			except ImportError as e:
 				raise e
-			except:
+			except URLError, InvalidURL:
 				raise ImgError('FAILED to get image: '+src)
 			if shell_cmd([cfg['CONVERT'],self.path_org+"[0]"] +\
 "-fuzz 1% -trim +repage -resize 500000@> -quality 40 -sampling-factor 4:2:0".split() + [self.path_jpg]) == 0:
@@ -392,6 +393,7 @@ class Article:
 		self.dstdir_r = art_dir(self.dir_ym)
 		self.dstdir=the_dir(self.dstdir_r)
 		self.dstpath=os.path.join(self.dstdir,self.bname)
+		self.dstpath_r=os.path.join(self.dstdir_r, self.bname)
 
 		# idx_url: how this article is addressed from index pages
 		self.idx_url = self.dir_ym + '/' + self.bname
@@ -656,7 +658,7 @@ class Article163(Article):
 			except KeyboardInterrupt as e:
 				raise e
 			except:
-				pass
+				traceback.print_exc()
 		return items_out
 
 class ArticleCCTV(Article):
@@ -846,7 +848,7 @@ class IndexPage:
 	
 	def store(self, art):
 		if self.has(art.idx_url):
-			return
+			return False
 		self.modified=True
 		code=\
 '<div class="article-ref">\n' +\
@@ -860,6 +862,7 @@ class IndexPage:
 		a=ET.fromstring(code)
 		self.article_container().insert(0,a)
 		print('Index page appended',self.filepath,'(%d)'%self.count())
+		return True
 	
 	def set_ref(self, c, url):
 		aa=self.body.findall(".//a[@class='"+c+"']")
@@ -901,12 +904,15 @@ class Indexer:
 		self.sq = sqlite3.connect(sq_path)
 		self.sq.text_factory = str #utf hack
 		self.sqc = self.sq.cursor()
+		if cfg['REBUILD_HTML']:
+			self.sqc.execute('DROP TABLE IF EXISTS articles')
+			self.sqc.execute('DROP TABLE IF EXISTS indexes')
 		self.sqc.execute( \
 'CREATE TABLE IF NOT EXISTS articles \
-(date TEXT, title TEXT, desc TEXT, html_path TEXT, src_url TEXT, origin TEXT)')
+(date TEXT, title TEXT, desc TEXT, html_path TEXT, src_url TEXT UNIQUE, origin TEXT)')
 		self.sqc.execute( \
 'CREATE TABLE IF NOT EXISTS indexes \
-(id INTEGER PRIMARY KEY, date TEXT, html_path TEXT)')
+(id INTEGER PRIMARY KEY, date TEXT, html_path TEXT UNIQUE)')
 		atexit.register(self.done_sq)
 		rows = self.sqc.execute( \
 'SELECT * FROM indexes ORDER BY id DESC LIMIT 2;'\
@@ -944,6 +950,9 @@ class Indexer:
 			and not (os.path.exists(p+'.skip')):
 				n+=1
 		return n
+	
+	def has_url(self, u):
+		return self.sqc.execute('SELECT EXISTS(SELECT 1 FROM articles WHERE src_url = ? LIMIT 1)', (u,)).fetchone()[0] == 1
 
 	def write_html_files(self, path, func):
 		if (not cfg['SAVE_HTML']) or (not cfg['SAVE_HTML_GZ']):
@@ -991,17 +1000,17 @@ class Indexer:
 		f.write('<div class="all"><h1>Archive</h1>\n')
 		f.write('<h2>Total articles: '+str(self.total_count())+'</h2>\n')
 		s = self.sqc.execute( \
-'SELECT * FROM indexes ORDER BY id DESC;')
+'SELECT * FROM indexes ORDER BY date DESC;')
 		rows = s.fetchall()
 		if rows is not None and len(rows)>0:
 			date = None
-			for i,d,html_path in rows:
+			for i,d,html_path in sorted(rows, key=lambda r:r[1][:10], reverse=True):
 				d=d[:10] # YYYY-MM-DD; drop the rest
 				if d != date:
 					if date is not None:
 						f.write('</div>')
 					date=d
-					f.write('<div class="d">'+d+'<br/>\n')
+					f.write('<div class="d"><div class="date">'+d+'</div>\n')
 				f.write('<a href="'+html_path+'">')
 				f.write(str(i))
 				f.write('</a>\n')
@@ -1045,18 +1054,26 @@ class Indexer:
 		self.sq.commit()
 	
 	def put(self, art):
-		self.sqc.execute('INSERT INTO articles VALUES (?,?,?,?,?,?)', (
-			time.strftime('%Y-%m-%d %H:%M:%S',art.date),
-			art.title,
-			art.desc,
-			art.idx_url,
-			art.src_url,
-			art.origin,
-		))
-		self.sq.commit()
 		if self.page.count() >= cfg['INDEX_BATCH']:
 			self.write_index_page()
 			self.new_page()
+		try:
+			self.sqc.execute('INSERT INTO articles VALUES (?,?,?,?,?,?)', (
+				time.strftime('%Y-%m-%d %H:%M:%S',art.date),
+				art.title,
+				art.desc,
+				art.idx_url,
+				art.src_url,
+				art.origin,
+			))
+		except sqlite3.IntegrityError as e:
+			traceback.print_exc()
+			print('src_url:', art.src_url)
+			print('html_path:', art.dstpath)
+			print('checking other records..')
+			rows=self.sqc.execute('SELECT * FROM articles WHERE html_path = ?', art.dstpath)
+			print(rows.fetchall())
+			raise e
 		self.page.store(art)
 	
 	def done_sq(self):
@@ -1206,7 +1223,7 @@ def main():
 				return
 			except ImportError:
 				return
-			except:
+			except URLError, InvalidURL:
 				traceback.print_exc()
 				print('Failed to get source', cl.origin)
 
@@ -1223,6 +1240,9 @@ def main():
 	for item in items:
 		cl_init=item['article_class_py_']
 		art=cl_init(item)
+
+		if idx.has_url(art.src_url):
+			continue
 
 		if article_whitelist is not None:
 			# if specific paths were listed in command line
@@ -1259,8 +1279,9 @@ def main():
 					raise e
 				except ImportError:
 					break
-				except:
+				except URLError, InvalidURL:
 					traceback.print_exc()
+					# continue
 
 		try:
 			check_kill_switch()

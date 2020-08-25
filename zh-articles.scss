@@ -238,14 +238,20 @@ a, a:visited {
 	// Archive
 	.all {
 		display: inline-block;
+		text-align: left;
 		// Box with date and index page links
 		.d {
 			display: inline-block;
-			float: left;
 			padding: 0.5em;
 			background: darken($c-bg,15%);
+			border: 0.1em solid $c-bg;
 			border-radius: 0.3em;
 			margin: 0.1em;
+			text-align: right;
+			.date {
+				text-align: left;
+				margin: 0 0 0.3em 0;
+			}
 		}
 	}
 }
