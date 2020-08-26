@@ -2,6 +2,7 @@
 fix regex (some weird broken html a href tags)
 
 fix same index page generated multiple times (1 item different)
+... already fixed by accident?
 
 add more source sites
 infzm.com
@@ -11,4 +12,16 @@ baidu
 filter the news
 - max N articles/day
 - enforce variety (drop multiple similar articles)
+
+a button to report broken content / image
+
+hot topics last 3 days
+
+an interactive php page:
+- search by keywords
+
+fix index page ordering
+- index page filename = YYYY-MM-DD
+- when inserting item(s): rewrite only the pages that need to change
+- ditch xml.etree and just do with regex?
 
