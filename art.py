@@ -1,6 +1,9 @@
 #!/usr/bin/env python2.7
 #-*- encoding: utf-8 -*-
 from __future__ import print_function
+import sys
+PYTHON2=sys.version_info[0]<3
+
 """
 Why 2.7? The web hosting service I use has it, that's why. Unicode problems ahead.
 
@@ -35,10 +38,9 @@ cfg={
 	'WEB_ROOT':'.',
 
 # relative to WEB_ROOT
-	'ARTICLES':'zh-news',
+	'ARTICLES':'z',
 
-# filename (under WEB_ROOT/ARTICLES/)
-# of a hardlink to the most recent index page
+# filename (under WEB_ROOT/ARTICLES/) of a hardlink to the most recent index page
 	'LAST_PAGE_ALIAS':'last.xhtml',
 
 # contains links to index pages
@@ -56,9 +58,6 @@ cfg={
 # if we want .html.gz articles
 	'SAVE_HTML_GZ':True,
 
-# if we want to write info .txt for later re-downloading of higher resolution image
-	'SAVE_IMG_INFO':True,
-
 # save PID to this file (comment if don't want)
 	'PID_FILE':'/tmp/news-aggregator.pid',
 
@@ -68,14 +67,15 @@ cfg={
 # paths to external programs
 	'CONVERT':'convert',
 	'CPULIMIT':'cpulimit',
+# 'PATH_PREPEND' : '/path/to/your/bin:'
 
 	'XHTML_HEADER': '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh" lang="zh">
 ''',
-
 	'HTML_HEADER':'<!DOCTYPE html>\n<html lang="zh">\n',
 
+# only used by make_head_tag()
 	'HEAD_CODE' : u'''<head>
 <meta charset="UTF-8"/>
 <meta http-equiv="Content-Type" content="application/xhtml+xml;charset=UTF-8"/>
@@ -100,10 +100,6 @@ cfg={
 }
 
 import traceback
-from urllib2 import Request, urlopen, URLError
-from httplib import InvalidURL
-from cStringIO import StringIO
-from base64 import encodestring as b64encode
 import subprocess
 import re
 import json
@@ -115,9 +111,26 @@ import xml.etree.ElementTree as ET
 import argparse
 import gzip
 import atexit
+from base64 import encodestring as b64encode
+
+if PYTHON2:
+	from urllib2 import Request, urlopen, URLError
+	from cStringIO import StringIO
+	from httplib import InvalidURL
+	def S(x): return x.encode('utf-8') if type(x) is unicode else str(x) ;
+	def B(x): return S(x) ;
+	# in python 2.x we use str, no unicode
+	# all strings that may have non-ascii in them we pass through S()
+else:
+	from io import StringIO
+	from urllib.request import Request, urlopen, URLError
+	class InvalidURL(Exception): pass ;
+	def unicode(x): return x;
+	def S(x): return x.decode('utf-8') if type(x) is bytes else x ;
+	def B(x): return x.encode('utf-8') if type(x) is str else x ;
 
 def make_head_tag(url_prefix=''):
-	return cfg['HEAD_CODE'].replace('@@',url_prefix).encode('utf-8')
+	return S(cfg['HEAD_CODE'].replace('@@',url_prefix))
 
 def check_kill_switch():
 	# to kill the program (when started by another user) use PID_FILE and delete it
@@ -246,11 +259,6 @@ def scanJ(html, r):
 		raise Exception('failed to parse main page, regex'+r)
 	return json.loads(m.group(1))
 
-def S(x):
-	if type(x) is unicode:
-		return x.encode('utf-8')
-	return str(x)
-
 def discard_url_params(url):
 	i=url.find('?')
 	return url[:i] if i>=0 else url
@@ -316,7 +324,8 @@ class Img:
 				raise e
 			except ImportError as e:
 				raise e
-			except URLError, InvalidURL:
+			except (URLError, InvalidURL, ValueError) as ex:
+				traceback.print_exc()
 				raise ImgError('FAILED to get image: '+src)
 			if shell_cmd([cfg['CONVERT'],self.path_org+"[0]"] \
 + "-fuzz 1% -trim +repage".split() \
@@ -425,7 +434,7 @@ class Article:
 		try:
 			im=Img(self.dstdir, src_url)
 		except ImgError as e:
-			print('Image rejected.', e.message)
+			print(e)
 			return '<!-- FAILED IMG CONVERSION, IMG REMOVED -->'
 		alt=re.search(r'alt="([^"]+)"', attr)
 		alt='' if alt is None else ' '+alt.group(0)
@@ -485,8 +494,8 @@ class Article:
 	
 	def fetch(self):
 		make_dir(self.dstdir)
-		self.src_html=cached_gz(self.dstpath+'.in', \
-			lambda:GET(self.src_url))
+		self.src_html=S(cached_gz(self.dstpath+'.in', \
+			lambda:GET(self.src_url)))
 	
 	def is_poisoned(self):
 		p=os.path.exists(self.dstpath+'.skip')
@@ -573,11 +582,12 @@ r'<meta\s+name="description"\s+content="([^"]+)"\s*/?>', self.src_html)
 			return ''
 		h='<nav>'
 		h+='<a class="zh-ret" href="'+self.back_url+'">'
-		h+=u'Return 返回'.encode('utf-8')
+		h+=S(u'Return 返回')
 		h+='</a>\n'
 		if org:
-			xx=u'Source 原文'.encode('utf-8')
-			h+='<a class="article-src" href="'+self.src_url+'">'+xx+'</a>\n'
+			xx=S(u'Source 原文')
+			uu=S(self.src_url)
+			h+='<a class="article-src" href="'+uu+'">'+xx+'</a>\n'
 		h+='</nav>'
 		return h
 
@@ -700,7 +710,7 @@ class ArticleCCTV(Article):
 	def parse_frontpage(news_1):
 		try:
 			news_json=json.loads(news_1[5:-1], encoding='utf-8')
-		except Exception, err:
+		except Exception as ex:
 			print('Failed to parse CCTV json')
 			print('json', news_1[:10], '...', news_1[-10:])
 			print('json (inner)', news_1[5:10], '...', news_1[-10:-1])
@@ -823,7 +833,7 @@ class IndexPage:
 		return pgc
 	
 	def count(self):
-		return len(self.article_container().getchildren())
+		return len(self.article_container())
 	
 	def get_date_str(self):
 		c=self.article_container()
@@ -878,7 +888,8 @@ class IndexPage:
 	
 	def write_xhtml(self, f):
 		f.write('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n')
-		self.et.write(f,encoding='utf-8', xml_declaration=False)
+		self.et.write(f, encoding=['unicode','utf-8'][PYTHON2], \
+			xml_declaration=False)
 	
 	def save(self, out_file, sqc):
 		if self.count() < 1:
@@ -965,7 +976,7 @@ class Indexer:
 		if func(io) is False:
 			io.close()
 			return False
-		content = S(io.getvalue())
+		content = B(io.getvalue())
 		io.close()
 		path_wip = path + '.wip'
 		path_gz = path + '.gz'
@@ -990,7 +1001,7 @@ class Indexer:
 		f.write('<a class="recent bling" href="'\
 +cfg['LAST_PAGE_ALIAS']+'">&gt;&gt;&gt; Enter &lt;&lt;&lt;</a><br/>\n')
 		f.write('<div class="main-content">')
-		f.write(u'''<div class="introd">
+		f.write(S(u'''<div class="introd">
 <div lang="en">
 <h1>About</h1>
 <p>Hey. I study chinese. I read their news. But chinese websites and apps put a heavy burden on phone's battery. That's why I made this service. Here you can read chinese news served fast from Europe. No javascript, no ads, just news.</p>
@@ -1000,7 +1011,7 @@ class Indexer:
 <p>你好。我是一个喜欢学中文的芬兰人，我经常看中国的新闻。但是从欧洲打开中国的网站很慢，而且它们运行的javascript让我手机掉电特别快。为了解决这个问题，我创建了这个网站。它简单的让大家看中国网站的新闻，但是在欧洲的读者会有更通畅的使用体验。</p>
 </div>
 <a href="https://github.com/sinf/noscript163">Github project page</a>
-'''.encode('utf-8'))
+'''))
 		if 'FEEDBACK_ADDR' in cfg:
 			f.write('<a id="feedback"></a>\n')
 			f.write("""<script>
@@ -1138,13 +1149,11 @@ def get_mainpages(url, cache_prefix, args):
 		# Update. Download the frontpage once and store to file
 		p=the_art_dir('in/'+time.strftime( \
 			cache_prefix + '-%Y-%m-%d-%H.html'))
-		frontpage = cached_gz(p, lambda u=url:GET(u))
-		assert type(frontpage) is str
+		frontpage = S(cached_gz(p, lambda u=url:GET(u)))
 		yield frontpage
 
 def parse_date_ymdhms(x):
-	t = x.encode('utf-8') if type(x) is unicode else str(x)
-	return time.strptime(t,'%Y-%m-%d %H:%M:%S')
+	return time.strptime(S(x),'%Y-%m-%d %H:%M:%S')
 
 def n_most_recent(items, n):
 	items = sorted(items, key=lambda it: it['article_date_py_'])
@@ -1241,7 +1250,7 @@ def main():
 				return
 			except ImportError:
 				return
-			except URLError, InvalidURL:
+			except (URLError, InvalidURL, ValueError) as ex:
 				traceback.print_exc()
 				print('Failed to get source', cl.origin)
 
@@ -1287,7 +1296,7 @@ def main():
 					art.fetch()
 					art.back_url = idx.article_back_ref()
 					if args.check_images is True:
-						with open('/dev/null','wb') as f:
+						with open('/dev/null','w') as f:
 							art.write_html(f)
 					else:
 						if rebuild_index_only or idx.write_article(art):
@@ -1297,7 +1306,7 @@ def main():
 					raise e
 				except ImportError:
 					break
-				except URLError, InvalidURL:
+				except (URLError, InvalidURL, ValueError) as ex:
 					traceback.print_exc()
 					# continue
 
