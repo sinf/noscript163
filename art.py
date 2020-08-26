@@ -129,13 +129,16 @@ else:
 	def S(x): return x.decode('utf-8') if type(x) is bytes else x ;
 	def B(x): return x.encode('utf-8') if type(x) is str else x ;
 
+class KillSwitchEx(Exception):
+	pass
+
 def make_head_tag(url_prefix=''):
 	return S(cfg['HEAD_CODE'].replace('@@',url_prefix))
 
 def check_kill_switch():
 	# to kill the program (when started by another user) use PID_FILE and delete it
 	if 'PID_FILE' in cfg and not os.path.exists(cfg['PID_FILE']):
-		raise ImportError('program kill switch')
+		raise KillSwitchEx()
 
 def try_remove(x):
 	try:
@@ -216,7 +219,7 @@ def HEAD_date(url):
 		be_nice(1)
 	except KeyboardInterrupt as e:
 		raise e
-	except ImportError as e:
+	except KillSwitchEx as e:
 		raise e
 	except:
 		ts=time.localtime()
@@ -322,7 +325,7 @@ class Img:
 				cached(self.path_org, lambda: GET(src))
 			except KeyboardInterrupt as e:
 				raise e
-			except ImportError as e:
+			except KillSwitchEx as e:
 				raise e
 			except (URLError, InvalidURL, ValueError) as ex:
 				traceback.print_exc()
@@ -1248,7 +1251,7 @@ def main():
 				return
 			except KeyboardInterrupt:
 				return
-			except ImportError:
+			except KillSwitchEx:
 				return
 			except (URLError, InvalidURL, ValueError) as ex:
 				traceback.print_exc()
@@ -1304,7 +1307,7 @@ def main():
 					be_nice(2)
 				except KeyboardInterrupt as e:
 					raise e
-				except ImportError:
+				except KillSwitchEx:
 					break
 				except (URLError, InvalidURL, ValueError) as ex:
 					traceback.print_exc()
@@ -1312,7 +1315,7 @@ def main():
 
 		try:
 			check_kill_switch()
-		except ImportError:
+		except KillSwitchEx:
 			break
 	
 	idx.done()
@@ -1331,6 +1334,6 @@ if __name__=="__main__":
 		main()
 	except KeyboardInterrupt:
 		pass
-	except ImportError:
+	except KillSwitchEx:
 		print('Aborted because PID file was removed')
 
