@@ -103,6 +103,7 @@ import traceback
 from urllib2 import Request, urlopen, URLError
 from httplib import InvalidURL
 from cStringIO import StringIO
+from base64 import encodestring as b64encode
 import subprocess
 import re
 import json
@@ -136,9 +137,9 @@ def try_link(x,y):
 		os.link(x, y)
 		print(y,'=>',x)
 
-def be_nice():
+def be_nice(s=3):
 	if cfg['NICE']:
-		for i in range(5):
+		for i in range(s):
 			check_kill_switch()
 			time.sleep(1)
 
@@ -199,7 +200,7 @@ def HEAD_date(url):
 			d=HEAD(url)['Date']
 			sqc.execute('INSERT INTO head VALUES (?,?)',(url,d))
 		ts=time.strptime(d, '%a, %d %b %Y %H:%M:%S GMT')
-		be_nice()
+		be_nice(1)
 	except KeyboardInterrupt as e:
 		raise e
 	except ImportError as e:
@@ -275,7 +276,7 @@ def shell_cmd(args):
 		args=[cfg['CPULIMIT']]+' -q -l 15 -- '.split()+args
 	print(' '.join(args))
 	ret=subprocess.call(args)
-	be_nice()
+	be_nice(2)
 	return ret
 
 class ImgError(Exception):
@@ -290,10 +291,10 @@ class Img:
 			# cctv put an error message in URL. WHY!?
 			raise ImgError('this... '+src)
 		bn=os.path.basename(src)
-		no_suf=re.sub(r'(\..{1,5})$','',bn)
-		suf=re.search(r'\..*$',bn)
-		if '.' in bn and not check_ext(bn,('.jpg','.jpeg','.gif','.png','.webp')):
-			raise ImgError('unknown suffix: '+bn[-4:])
+		no_suf, suf = suffix_split(bn)
+		if suf not in ('', '.jpg','.jpeg','.gif','.png','.webp'):
+			# gotta reject some obvious non-images
+			raise ImgError('unknown suffix: '+suf)
 		self.path_org=os.path.join(dstdir, 'img0', bn)
 		self.path_webp=os.path.join(dstdir, 'img', no_suf+'.webp')
 		self.path_jpg=os.path.join(dstdir, 'img', no_suf+'.jpg')
@@ -317,8 +318,11 @@ class Img:
 				raise e
 			except URLError, InvalidURL:
 				raise ImgError('FAILED to get image: '+src)
-			if shell_cmd([cfg['CONVERT'],self.path_org+"[0]"] +\
-"-fuzz 1% -trim +repage -resize 500000@> -quality 40 -sampling-factor 4:2:0".split() + [self.path_jpg]) == 0:
+			if shell_cmd([cfg['CONVERT'],self.path_org+"[0]"] \
++ "-fuzz 1% -trim +repage".split() \
++ ['-resize', '560x2000>'] \
++ "-quality 40 -sampling-factor 4:2:0".split() \
++ [self.path_jpg]) == 0:
 				# convert success
 
 				# but check for 1x1 image
@@ -328,7 +332,7 @@ class Img:
 							print('1x1 image')
 							self.mark_poisoned()
 							raise ImgError('poisoned')
-				except CalledProcessError:
+				except subprocess.CalledProcessError:
 					pass
 
 				if not cfg['SAVE_IMG_SRC']:
@@ -909,7 +913,7 @@ class Indexer:
 			self.sqc.execute('DROP TABLE IF EXISTS indexes')
 		self.sqc.execute( \
 'CREATE TABLE IF NOT EXISTS articles \
-(date TEXT, title TEXT, desc TEXT, html_path TEXT, src_url TEXT UNIQUE, origin TEXT)')
+(date TEXT, title TEXT, desc TEXT, html_path TEXT, src_url TEXT UNIQUE, origin TEXT, idx_fn TEXT)')
 		self.sqc.execute( \
 'CREATE TABLE IF NOT EXISTS indexes \
 (id INTEGER PRIMARY KEY, date TEXT, html_path TEXT UNIQUE)')
@@ -986,7 +990,8 @@ class Indexer:
 		f.write('<a class="recent bling" href="'\
 +cfg['LAST_PAGE_ALIAS']+'">&gt;&gt;&gt; Enter &lt;&lt;&lt;</a><br/>\n')
 		f.write('<div class="main-content">')
-		f.write(u'''<div class="introd"><div lang="en">
+		f.write(u'''<div class="introd">
+<div lang="en">
 <h1>About</h1>
 <p>Hey. I study chinese. I read their news. But chinese websites and apps put a heavy burden on phone's battery. That's why I made this service. Here you can read chinese news served fast from Europe. No javascript, no ads, just news.</p>
 </div>
@@ -995,8 +1000,17 @@ class Indexer:
 <p>你好。我是一个喜欢学中文的芬兰人，我经常看中国的新闻。但是从欧洲打开中国的网站很慢，而且它们运行的javascript让我手机掉电特别快。为了解决这个问题，我创建了这个网站。它简单的让大家看中国网站的新闻，但是在欧洲的读者会有更通畅的使用体验。</p>
 </div>
 <a href="https://github.com/sinf/noscript163">Github project page</a>
-</div>
 '''.encode('utf-8'))
+		if 'FEEDBACK_ADDR' in cfg:
+			f.write('<a id="feedback"></a>\n')
+			f.write("""<script>
+/* I know. But just 3 lines for basic anti-spam */
+var fbm=document.getElementById('feedback');
+fbm.innerText='Send me feedback';
+fbm.href=atob('""")
+			f.write(b64encode(cfg['FEEDBACK_ADDR']).strip())
+			f.write("');\n</script>\n")
+		f.write('</div>\n') #end .introd
 		f.write('<div class="all"><h1>Archive</h1>\n')
 		f.write('<h2>Total articles: '+str(self.total_count())+'</h2>\n')
 		s = self.sqc.execute( \
@@ -1081,10 +1095,7 @@ class Indexer:
 		self.sq.commit()
 		self.sq.close()
 	
-	def done(self):
-		self.write_index_page()
-		self.sq.commit()
-		self.write_master_index()
+	def overwrite_files(self):
 		print('*** Moving new files over old files')
 		for old,new in self.renames:
 			if os.path.exists(old):
@@ -1093,6 +1104,12 @@ class Indexer:
 				if os.path.exists(new): os.rename(new,bak) ;
 				os.rename(old,new)
 				print(old,'=>',new)
+	
+	def done(self):
+		self.write_index_page()
+		self.sq.commit()
+		self.write_master_index()
+		self.overwrite_files()
 	
 	def article_back_ref(self):
 		return '../' + self.page.sib_url
@@ -1159,7 +1176,7 @@ def main():
 		with open(args.conf[0],'r') as f:
 			tmp=json.load(f)
 			cfg.update(tmp)
-
+	
 	if args.rebuild_html: cfg['REBUILD_HTML']=True;
 	if args.rebuild_images: cfg['REBUILD_IMAGES']=True;
 	if args.rebuild_after: cfg['REBUILD_AFTER']=args.rebuild_after
@@ -1191,6 +1208,7 @@ def main():
 	idx = Indexer()
 	if args.rebuild_mainpage:
 		idx.write_master_index()
+		idx.overwrite_files()
 		return
 	
 	sources = [
@@ -1274,7 +1292,7 @@ def main():
 					else:
 						if rebuild_index_only or idx.write_article(art):
 							idx.put(art)
-					be_nice()
+					be_nice(2)
 				except KeyboardInterrupt as e:
 					raise e
 				except ImportError:
