@@ -272,7 +272,7 @@ def have_html_files(path):
 	
 def shell_cmd(args):
 	if cfg['NICE']:
-		args=cfg['CPULIMIT']+' -q -l 15 -- '.split()+args
+		args=[cfg['CPULIMIT']]+' -q -l 15 -- '.split()+args
 	print(' '.join(args))
 	ret=subprocess.call(args)
 	be_nice()
