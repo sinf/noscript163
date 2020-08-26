@@ -5,7 +5,7 @@ $(error "Set UPLOAD_STUFF_TO environment variable (sshhost:/path/to/www)")
 endif
 
 ND:=z
-DISTFILES:=$(addprefix $(ND),zh-articles.css favicon.gif) art.py
+DISTFILES:=$(addprefix $(ND)/,zh-articles.css favicon.gif) art.py
 
 all: $(ND)/zh-articles.css
 
