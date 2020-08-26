@@ -188,45 +188,6 @@ def HEAD(url):
 	r.close()
 	return nfo
 
-HEAD_sq_conn=None
-HEAD_sq_cur=None
-
-def HEAD_sq_cleanup():
-	global HEAD_sq_conn
-	global HEAD_sq_cur
-	HEAD_sq_cur.close()
-	HEAD_sq_conn.commit()
-	HEAD_sq_conn.close()
-
-def HEAD_date(url):
-	global HEAD_sq_conn
-	global HEAD_sq_cur
-	if HEAD_sq_conn is None:
-		HEAD_sq_conn = sqlite3.connect(the_art_dir('head.db'))
-		HEAD_sq_cur = HEAD_sq_conn.cursor()
-		HEAD_sq_cur.execute( \
-'CREATE TABLE IF NOT EXISTS head (url TEXT UNIQUE, date TEXT)')
-		atexit.register(HEAD_sq_cleanup)
-	sqc = HEAD_sq_cur
-	row = sqc.execute('SELECT date FROM head WHERE url = ?',(url,)).fetchone()
-	try:
-		if row is not None and len(row)>0:
-			d=row[0]
-		else:
-			d=HEAD(url)['Date']
-			sqc.execute('INSERT INTO head VALUES (?,?)',(url,d))
-		ts=time.strptime(d, '%a, %d %b %Y %H:%M:%S GMT')
-		be_nice(1)
-	except KeyboardInterrupt as e:
-		raise e
-	except KillSwitchEx as e:
-		raise e
-	except:
-		ts=time.localtime()
-		traceback.print_exc()
-		print('Failed to query', url)
-	return ts
-
 def htmlspecialchars(s):
 	s=S(s)
 	for a,b in (
@@ -931,6 +892,8 @@ class Indexer:
 		self.sqc.execute( \
 'CREATE TABLE IF NOT EXISTS indexes \
 (id INTEGER PRIMARY KEY, date TEXT, html_path TEXT UNIQUE)')
+		self.sqc.execute( \
+'CREATE TABLE IF NOT EXISTS head (url TEXT UNIQUE, date TEXT)')
 		atexit.register(self.done_sq)
 		rows = self.sqc.execute( \
 'SELECT * FROM indexes ORDER BY id DESC LIMIT 2;'\
@@ -955,6 +918,29 @@ class Indexer:
 		if p.prev is not None and not p.is_full():
 			p=p.prev
 		return p
+	
+	def http_head_date(self, url):
+		""" query date of some file with http HEAD
+		and use the sqlite as cache """
+		row = self.sqc.execute( \
+			'SELECT date FROM head WHERE url = ?',(url,)).fetchone()
+		try:
+			if row is not None and len(row)>0:
+				d=row[0]
+			else:
+				d=HEAD(url)['Date']
+				self.sqc.execute('INSERT INTO head VALUES (?,?)',(url,d))
+			ts=time.strptime(d, '%a, %d %b %Y %H:%M:%S GMT')
+			be_nice(1)
+		except KeyboardInterrupt as e:
+			raise e
+		except KillSwitchEx as e:
+			raise e
+		except:
+			traceback.print_exc()
+			print('Failed to query', url)
+			ts=time.localtime()
+		return ts
 	
 	def total_count(self):
 		q=self.sqc.execute('SELECT DISTINCT html_path FROM articles')
@@ -1242,7 +1228,7 @@ def main():
 					assert 'docid' in it
 					it['article_class_py_'] = cl
 					if 'article_date_py_' not in it:
-						it['article_date_py_'] = HEAD_date(it['url'])
+						it['article_date_py_'] = idx.http_head_date(it['url'])
 				tmp = n_most_recent(tmp, int(cfg.get('MAX_DL',50)))
 				items += tmp
 			except AssertionError as e:
