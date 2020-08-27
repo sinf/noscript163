@@ -114,7 +114,7 @@ import atexit
 from base64 import encodestring as b64encode
 
 if PYTHON2:
-	from urllib2 import Request, urlopen, URLError
+	from urllib2 import Request, urlopen, URLError, HTTPError
 	from cStringIO import StringIO
 	from httplib import InvalidURL
 	def S(x): return x.encode('utf-8') if type(x) is unicode else str(x) ;
@@ -123,7 +123,7 @@ if PYTHON2:
 	# all strings that may have non-ascii in them we pass through S()
 else:
 	from io import StringIO
-	from urllib.request import Request, urlopen, URLError
+	from urllib.request import Request, urlopen, URLError, HTTPError
 	class InvalidURL(Exception): pass ;
 	def unicode(x): return x;
 	def S(x): return x.decode('utf-8') if type(x) is bytes else x ;
@@ -1072,13 +1072,14 @@ fbm.href=atob('""")
 			self.write_index_page()
 			self.new_page()
 		try:
-			self.sqc.execute('INSERT INTO articles VALUES (?,?,?,?,?,?)', (
+			self.sqc.execute('INSERT INTO articles VALUES (?,?,?,?,?,?,?)', (
 				time.strftime('%Y-%m-%d %H:%M:%S',art.date),
 				art.title,
 				art.desc,
 				art.idx_url,
 				art.src_url,
 				art.origin,
+				None
 			))
 		except sqlite3.IntegrityError as e:
 			traceback.print_exc()
@@ -1138,7 +1139,11 @@ def get_mainpages(url, cache_prefix, args):
 		# Update. Download the frontpage once and store to file
 		p=the_art_dir('in/'+time.strftime( \
 			cache_prefix + '-%Y-%m-%d-%H.html'))
-		frontpage = S(cached_gz(p, lambda u=url:GET(u)))
+		try:
+			frontpage = S(cached_gz(p, lambda u=url:GET(u)))
+		except HTTPError:
+			traceback.print_exc()
+			return
 		yield frontpage
 
 def parse_date_ymdhms(x):
