@@ -293,8 +293,8 @@ class Img:
 				raise ImgError('FAILED to get image: '+src)
 			if shell_cmd([cfg['CONVERT'],self.path_org+"[0]"] \
 + "-fuzz 1% -trim +repage".split() \
-+ ['-resize', '560x2000>'] \
-+ "-quality 40 -sampling-factor 4:2:0".split() \
++ ['-resize', '400x2000>'] \
++ "-quality 35 -sampling-factor 4:2:0".split() \
 + [self.path_jpg]) == 0:
 				# convert success
 
@@ -1102,7 +1102,7 @@ fbm.href=atob('""")
 			if os.path.exists(old):
 				bak=new+'.bak'
 				if os.path.exists(bak): os.remove(bak) ;
-				if os.path.exists(new): os.rename(new,bak) ;
+				#if os.path.exists(new): os.rename(new,bak) ;
 				os.rename(old,new)
 				print(old,'=>',new)
 	
